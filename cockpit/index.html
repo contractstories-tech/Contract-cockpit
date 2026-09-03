@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#102f2c" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f5f0e6" media="(prefers-color-scheme: light)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Contract Cockpit">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none';">
+  <title>Contract Cockpit — Mobile PWA</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png" sizes="192x192">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ============================================================
+     LOADING OVERLAY
+     ============================================================ -->
+
+<div id="loadingOverlay" class="loading-overlay hidden">
+  <div class="spinner"></div>
+  <span id="loadingText">Loading…</span>
+</div>
+
+<!-- ============================================================
+     TERM TOOLTIP (globally positioned)
+     ============================================================ -->
+
+<div id="termTooltip" class="term-tooltip hidden"></div>
+<div id="peekCard" class="peek-card hidden"></div>
+
+<!-- ============================================================
+     ONBOARDING OVERLAY (v6.1)
+     ============================================================ -->
+
+<div id="onboardingOverlay" class="modal-overlay onboarding-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
+  <div class="onboarding-card" tabindex="-1">
+  <h2 id="onboardingTitle">Start with the job you need to do</h2>
+  <p style="color:var(--text-muted);font-size:.88rem;margin:0 0 18px;">Contract Cockpit is a private, local workbench. You can run one check, review the whole agreement, or simply read it.</p>
+  <div class="onboarding-steps">
+    <div class="onboarding-step">
+      <div class="step-num">1</div>
+      <div class="step-text"><strong>Choose a task</strong> Run a focused check, conduct a full review, or open a distraction-free reading view.</div>
+    </div>
+    <div class="onboarding-step">
+      <div class="step-num">2</div>
+      <div class="step-text"><strong>Load the document</strong> Drop a .docx or .txt file, or paste text. Nothing is sent to a server.</div>
+    </div>
+    <div class="onboarding-step">
+      <div class="step-num">3</div>
+      <div class="step-text"><strong>Verify findings at source</strong> Every check links back to the clause. Detected does not mean confirmed.</div>
+    </div>
+    <div class="onboarding-step">
+      <div class="step-num">4</div>
+      <div class="step-text"><strong>Keep the same work everywhere</strong> Confirmations made in a focused check carry into Full Review, Resolve and exports.</div>
+    </div>
+  </div>
+  <div class="onboarding-tip">New here? Load the two-clause guided example below. It demonstrates a defined term, a broken cross-reference and the path back to source.</div>
+  <div class="btn-row onboarding-actions"><button class="btn btn-primary" data-onboarding-tour>Try the two-clause example</button><button class="btn" data-dismiss-onboarding>Use my own contract</button></div>
+</div>
+</div>
+
+<!-- ============================================================
+     LANDING PAGE
+     ============================================================ -->
+
+<div id="landing" class="landing">
+  <div class="landing-header">
+    <button id="landingThemeBtn" class="icon-btn" title="Toggle theme">◑</button>
+    <button id="landingPrefsBtn" class="icon-btn" title="Preferences &amp; settings">⚙</button>
+  </div>
+  <h1>Contract Cockpit</h1>
+  <p class="subtitle">Check one thing, review the whole contract, or read without distractions. Everything runs locally in your browser.</p>
+
+  <section class="intent-chooser" aria-labelledby="intentTitle">
+    <div class="intent-heading"><span class="eyebrow">Start here</span><h2 id="intentTitle">What do you need to do?</h2></div>
+    <div class="intent-grid">
+      <button class="intent-card active" type="button" data-start-intent="checks"><span class="intent-icon">✓</span><strong>Run a focused check</strong><small>Definitions, references, blanks, obligations and more—without a full review.</small><span class="intent-recommend">Best place to start</span></button>
+      <button class="intent-card" type="button" data-start-intent="review"><span class="intent-icon">§</span><strong>Review the whole contract</strong><small>Work clause by clause, make decisions and prepare negotiation outputs.</small></button>
+      <button class="intent-card" type="button" data-start-intent="read"><span class="intent-icon">Aa</span><strong>Read the contract</strong><small>Open a calm, document-first view with definitions and references available on demand.</small></button>
+    </div>
+    <label class="focused-start-picker" for="focusedStartCheck">
+      <span><strong>Focused check to open first</strong><small>You can switch checks later without losing confirmations.</small></span>
+      <select id="focusedStartCheck">
+        <option value="review-items">Review items — prioritised queue</option>
+        <option value="definitions">Defined terms</option>
+        <option value="references">Cross-references</option>
+        <option value="placeholders">Blanks &amp; placeholders</option>
+        <option value="obligations">Obligations &amp; deadlines</option>
+        <option value="concepts">Legal issues by concept</option>
+        <option value="playbook">Playbook coverage</option>
+        <option value="asymmetry">One-way rights</option>
+        <option value="missing">Expected clauses</option>
+        <option value="readiness">Signing readiness</option>
+      </select>
+    </label>
+  </section>
+
+  <section id="pwaStatusCard" class="pwa-status-card" aria-live="polite">
+    <div class="pwa-status-copy">
+      <strong id="pwaStatusTitle">Preparing offline access…</strong>
+      <span id="pwaStatusText">Keep this page open briefly on your first visit.</span>
+    </div>
+    <button id="pwaInstallBtn" class="btn btn-sm btn-primary hidden" type="button">Install app</button>
+    <button id="pwaDismissBtn" class="icon-btn pwa-dismiss hidden" type="button" aria-label="Dismiss installation guidance">×</button>
+  </section>
+
+  <!-- Restore banner -->
+
+  <div id="restoreBanner" class="restore-banner hidden">
+    <span id="restoreText">Previous session found.</span>
+    <button id="restoreSessionBtn" class="btn btn-sm btn-primary">Resume matter</button>
+    <button id="startFreshBtn" class="btn btn-sm btn-ghost">Start new (saved work stays recoverable)</button>
+  </div>
+
+  <!-- Upload card -->
+
+  <div class="landing-card">
+    <h2>Upload a contract</h2>
+    <div class="intake-quick-row" aria-label="Matter profile">
+      <label class="intake-quick-label">
+        <span>Reviewing as</span>
+        <select id="intakeRoleSelect">
+          <option value="Neutral">Role not confirmed</option>
+          <option value="Supplier">Service Provider / Supplier</option>
+          <option value="Customer">Customer / Client</option>
+        </select>
+      </label>
+      <label class="intake-quick-label">
+        <span>Jurisdiction</span>
+        <select id="intakeJurisdictionSelect">
+          <option value="">Not set</option>
+          <option value="India">India</option>
+          <option value="UK">UK</option>
+          <option value="US">US</option>
+          <option value="EU">EU</option>
+          <option value="Singapore">Singapore</option>
+          <option value="Other">Other</option>
+        </select>
+      </label>
+    </div>
+    <details class="matter-options-disclosure">
+      <summary>Matter options <span>Counterparty and risk appetite</span></summary>
+      <div class="intake-grid">
+        <label><span>Counterparty</span><input id="intakeCounterpartyInput" type="text" placeholder="Customer / Vendor / Partner"></label>
+        <label><span>Risk appetite</span><select id="intakeRiskAppetiteSelect"><option value="Low">Low</option><option value="Medium" selected>Medium</option><option value="High">High</option></select></label>
+      </div>
+      <p class="subtitle-mini">These inputs frame review and negotiation outputs. They never alter the contract text.</p>
+    </details>
+    <p class="subtitle-mini trust-note">Your contract text and review work stay in this browser. This edition has no AI provider connection, analytics, or telemetry. Local sessions remain on this browser profile until you clear them.</p>
+    <p class="subtitle-mini trust-note">Anyone using this same browser profile on this device can access saved local sessions until they are cleared.</p>
+    <label class="upload-zone" for="fileInput" style="border:2px dashed var(--border);border-radius:var(--radius);padding:28px 16px;text-align:center;cursor:pointer;margin-bottom:10px;transition:border-color .15s;" aria-label="Choose or drop a contract file">
+      <p style="margin:0 0 6px;font-size:.9rem;"><span id="uploadPrimaryCopy">Drop a <strong>.docx</strong> or <strong>.txt</strong> file here</span></p>
+      <p style="margin:0;font-size:.78rem;color:var(--text-muted);"><span id="uploadSecondaryCopy">or click to browse</span></p>
+      <p class="subtitle-mini upload-caveat">DOCX support depends on the browser. If it is unavailable on iPhone or iPad, paste the text or upload a .txt/.html copy.</p>
+      <input type="file" id="fileInput" accept=".docx,.txt,.md,.html,.htm,.json" class="visually-hidden-file-input">
+      <p class="subtitle-mini upload-caveat">To open a shared session, choose the exported session JSON here.</p>
+    </label>
+    <div id="docxCompatibilityBanner" class="compatibility-banner hidden" style="margin-bottom:10px;border-radius:var(--radius);"></div>
+  </div>
+
+  <!-- Paste card -->
+
+  <div class="landing-card">
+    <h2>Or paste contract text</h2>
+    <label for="rawText">Contract text</label>
+    <textarea id="rawText" placeholder="Paste the full contract text here…"></textarea>
+    <div class="btn-row">
+      <button id="analyzePastedBtn" class="btn btn-primary">Analyze pasted text</button>
+      <div class="sample-load-row">
+        <select id="sampleSelect" class="sample-select" title="Choose a sample contract">
+          <option value="msa">Sample MSA</option>
+          <option value="nda">Sample NDA</option>
+          <option value="saas">Sample SaaS Agreement</option>
+          <option value="tour">Two-clause guided example</option>
+        </select>
+        <button id="loadSampleBtn" class="btn btn-sm">Load sample</button>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="landing-card playbook-import-card">
+    <h2>Playbook profile <span class="optional-label">lawyer-controlled</span></h2>
+    <p class="subtitle-mini">Activate a versioned local playbook only when its role fits this matter. It suggests relevant modules; it never changes risk, wording, or decisions automatically.</p>
+    <label class="intake-quick-label"><span>Package for this matter</span><select id="playbookPackageSelect"><option value="">No playbook</option></select></label>
+    <div class="btn-row">
+      <button id="activatePlaybookBtn" class="btn btn-sm">Activate selected package</button>
+      <button id="importPlaybookBtn" class="btn btn-sm btn-ghost">Import package JSON</button>
+      <span class="mini" id="playbookImportStatus"></span>
+    </div>
+    <input type="file" id="playbookImportInput" accept=".json" style="display:none">
+    <p class="subtitle-mini trust-note">Your playbook stays in your browser. It is never uploaded anywhere.</p>
+  </div>
+
+  <div class="landing-version">Contract Cockpit 7.6 — Trust Completion · local-only</div>
+</div>
+
+<!-- ============================================================
+     MAIN APP
+     ============================================================ -->
+
+<div id="app" class="hidden">
+
+  <!-- App header -->
+
+  <header class="app-header">
+    <button id="mobileClauseDrawerBtn" class="icon-btn" title="Clauses" style="display:none;">☰</button>
+    <span id="docName" class="doc-name"></span>
+    <span id="docMeta" class="doc-meta"></span>
+    <span id="autosaveStatus" class="autosave-status">Saved locally</span>
+    <span class="snapshot-notice" style="display:none;"></span>
+    <div id="toastLiveRegion" class="toast-live-region" aria-live="polite" aria-atomic="true"></div>
+
+<span id="offlineIndicator" class="offline-indicator" title="Contract analysis and saved work stay in this browser. The network is used only to load or update the app shell."><span class="offline-dot"></span>Local analysis</span>
+<div class="header-actions">
+  <select id="contractTypeSelect" title="Contract type" aria-label="Contract type">
+    <option value="">Auto-detect</option>
+    <option value="Services Agreement">Services Agreement</option>
+    <option value="MSA">MSA</option>
+    <option value="SaaS Agreement">SaaS</option>
+    <option value="NDA">NDA</option>
+    <option value="SOW">SOW</option>
+    <option value="DPA">Data Processing Agreement (DPA)</option>
+    <option value="DPDP DPA">India DPDP DPA</option>
+    <option value="Employment">Employment</option>
+    <option value="IT/ITES Outsourcing">IT/ITES Outsourcing</option>
+    <option value="Staff Augmentation">Staff Augmentation</option>
+    <option value="Lease">Lease</option>
+    <option value="Technology License">License</option>
+    <option value="Custom">Other</option>
+  </select>
+  <button id="hubBtn" class="btn btn-sm desktop-only" title="Controlled outputs, Word handoff and evidence">Share &amp; handoff</button>
+  <button id="matterBtn" class="btn btn-sm btn-ghost desktop-only" title="Snapshots, local recovery and matter controls">Matter</button>
+  <button id="readingModeBtn" class="btn btn-sm" type="button" title="Open distraction-free reading mode">Read</button>
+  <button id="printViewBtn" class="icon-btn" type="button" title="Print the current view" aria-label="Print the current view">⎙</button>
+  <button id="headerPrefsBtn" class="icon-btn" title="Preferences">⚙</button>
+  <button id="headerHelpBtn" class="icon-btn" title="Keyboard shortcuts (?)">?</button>
+  <button id="themeToggleBtn" class="icon-btn" title="Toggle theme">◑</button>
+  <button id="showLandingBtn" class="icon-btn" title="New document">＋</button>
+</div>
+
+  </header>
+
+  <div id="annunciatorPanel" class="annunciator-panel hidden" role="status" aria-live="polite"></div>
+
+  <div id="workflowModes" class="workflow-modes hidden">
+    <span class="workflow-label">Workspace</span>
+    <button id="workflowTriageBtn" class="workflow-mode-btn" type="button" aria-label="Open focused checks" aria-pressed="false">Checks</button>
+    <button id="workflowReviewBtn" class="workflow-mode-btn" type="button" aria-label="Open contract review" aria-pressed="false">Review</button>
+    <button id="workflowNegotiateBtn" class="workflow-mode-btn" type="button" aria-label="Switch to Resolve stage" aria-pressed="false">Resolve</button>
+    <button id="workflowOutputsBtn" class="workflow-mode-btn" type="button" aria-label="Switch to Export stage" aria-pressed="false">Export</button>
+  </div>
+
+  <div id="cockpitStrip" class="cockpit-strip hidden">
+    <div class="cockpit-tile" id="healthTile" title="Review-completion estimate based on completed checks and decisions — not a legal risk opinion."><span class="k">Review progress <span class="heuristic-badge" style="font-size:.55rem;">heuristic</span></span><strong id="cockpitFileVal">100</strong><span class="s" id="cockpitFileSub">Strong</span></div>
+    <div class="cockpit-tile"><span class="k">Decisions</span><strong id="cockpitClauseVal">0/0</strong><span class="s" id="cockpitClauseSub">No structure yet</span></div>
+    <div class="cockpit-tile" title="Pattern-based inherent-risk estimate from clause type, playbook deviation, protections, and contract context — verify against the source."><span class="k">Inherent risk</span><strong id="cockpitRiskVal">Low</strong><span class="s" id="cockpitRiskSub">Load a contract</span></div>
+    <div class="cockpit-tile"><span class="k">Signing status</span><strong id="cockpitPriorityVal">Blocked</strong><span class="s" id="cockpitPrioritySub">Items before signature</span></div>
+    <div class="cockpit-tile"><span class="k">Open inputs</span><strong id="cockpitNegotiationVal">0</strong><span class="s" id="cockpitNegotiationSub">No open inputs</span></div>
+      <button id="cockpitCollapseBtn" class="cockpit-collapse-btn" type="button" title="Collapse dashboard">▾</button>
+  </div>
+
+  <div id="cockpitSummaryBar" class="cockpit-summary-bar hidden"></div>
+
+  <main id="checksWorkspace" class="checks-workspace hidden" aria-live="polite"></main>
+  <main id="resolveWorkspace" class="resolve-workspace hidden" aria-live="polite"></main>
+
+  <!-- Workspace: 3-column layout -->
+
+  <div class="workspace">
+
+<!-- LEFT PANEL: Clause Navigator -->
+<aside class="left-panel">
+  <div class="nav-header">
+    <input type="text" id="searchInput" class="search-input" placeholder="Search clauses…" autocomplete="off">
+    <div class="nav-mode-btns">
+      <button id="outlineModeBtn" class="btn btn-xs active" title="Document outline">Document</button>
+      <button id="triageModeBtn" class="btn btn-xs" title="Review queue">Issues</button>
+    </div>
+  </div>
+  <div class="nav-section-label">Status</div>
+  <div id="queueBar" class="queue-bar">
+    <button class="queue-chip active" type="button" data-queue="needs-decision" data-base-label="Needs decision">Needs decision <span class="nav-count">0</span></button>
+    <button class="queue-chip" type="button" data-queue="awaiting-input" data-base-label="Awaiting input">Awaiting input <span class="nav-count">0</span></button>
+    <button class="queue-chip" type="button" data-queue="escalations" data-base-label="Escalated">Escalated <span class="nav-count">0</span></button>
+    <button class="queue-chip" type="button" data-queue="decided" data-base-label="Done">Done <span class="nav-count">0</span></button>
+  </div>
+  <div class="nav-section-label">Filter by</div>
+  <div class="filter-bar">
+    <button type="button" class="seg-btn active" data-group="review" data-filter="all">All</button>
+    <button type="button" class="seg-btn" data-group="review" data-filter="unreviewed">Unreviewed</button>
+    <button type="button" class="seg-btn" data-group="content" data-filter="notes">Notes</button>
+    <details class="filter-popover">
+      <summary class="seg-btn filter-summary">⚙ Filters</summary>
+      <div class="filter-popover-panel">
+        <button type="button" class="seg-btn" data-group="content" data-filter="flagged">Flagged</button>
+        <button type="button" class="seg-btn" data-group="content" data-filter="tagged">Tagged</button>
+        <button type="button" class="seg-btn" data-group="content" data-filter="broken-xrefs">Broken xrefs</button>
+        <button type="button" class="seg-btn" data-group="review" data-filter="escalated">Escalated</button>
+        <button type="button" class="seg-btn" data-group="review" data-filter="high-risk">High risk <span class="nav-count">0</span></button>
+        <button type="button" class="seg-btn" data-group="review" data-filter="has-issues">Has issues</button>
+        <button type="button" class="seg-btn" data-group="review" data-filter="my-inbox">My inbox</button>
+      </div>
+    </details>
+  </div>
+  <div id="clauseList" class="clause-list" role="listbox" aria-label="Clause queue"></div>
+</aside>
+
+<!-- CENTER PANEL: Clause View -->
+<main class="center-panel">
+  <div id="emptyState" class="empty-state">
+    <div>
+      <p>Select a clause from the queue, or open <strong>Checks</strong> when you only need one document check.</p>
+      <p style="font-size:.78rem;color:var(--text-dim);">or upload a contract to get started</p>
+    </div>
+  </div>
+  <div id="clauseScopeBar" class="scope-bar hidden"></div>
+  <div id="breadcrumbBar" class="breadcrumb-bar hidden"></div>
+  <div id="clauseView" class="clause-view hidden"></div>
+  <div id="minimapRail" class="minimap-rail"></div>
+</main>
+
+<!-- RIGHT PANEL: contextual surface -->
+<aside class="right-panel simplified-right-panel" data-workflow-stage="intake">
+  <div id="rightPanelResizeHandle" class="right-panel-resize-handle" aria-label="Resize right panel" role="separator" aria-orientation="vertical" aria-valuemin="300" aria-valuemax="520" aria-valuenow="340" tabindex="0"></div>
+  <details id="toolsStrip" class="tools-strip findings-destination legacy-independent-tools" hidden>
+    <summary>Independent checks</summary>
+    <div class="tools-strip-tabs">
+      <button class="tools-tab active" data-tools-tab="map">Overview</button>
+      <button class="tools-tab" data-tools-tab="terms">Terms</button>
+      <button class="tools-tab" data-tools-tab="refs">References</button>
+      <button class="tools-tab" data-tools-tab="fills">Blanks</button>
+      <button class="tools-tab" data-tools-tab="timeline">Timeline</button>
+    </div>
+    <div id="toolsPanel" class="tools-panel"></div>
+  </details>
+  <div class="tools-strip-divider"></div>
+  <div class="panel-zone-label">Review analysis</div>
+  <div id="contextPanelHeader" class="context-panel-header">
+    <div class="context-panel-title-wrap">
+      <div class="mini-label" id="contextPanelModeLabel">Decide</div>
+      <h3 id="contextPanelTitle">Decision Context</h3>
+    </div>
+      </div>
+  <div id="contextPanelBody" class="context-panel-body"></div>
+  <div id="contextUtilitiesDrawer" class="context-utilities-drawer hidden">
+    <div class="mini">Additional views</div>
+  </div>
+
+  <!-- legacy tabs retained under contextual shell -->
+  <div id="toolTabs" class="tool-tabs legacy-tool-tabs">
+    <button class="tool-tab active" data-tab="summary" data-base-label="Context">Context</button>
+    <button class="tool-tab" data-tab="strategy" data-base-label="Playbook">Playbook</button>
+    <button class="tool-tab" data-tab="notes" data-base-label="History &amp; notes">History &amp; notes</button>
+  </div>
+
+  <!-- Summary panel -->
+  <div id="tab-summary" class="tool-panel">
+    <div id="reviewProgressMount"></div>
+    <!-- Rendered dynamically by renderSummaryPanel -->
+  </div>
+
+  <!-- Review panel (sub-tabs: Issues / Terms / Placeholders / Timeline) -->
+  <div id="tab-review" class="tool-panel hidden">
+    <!-- Rendered dynamically by renderReviewPanel -->
+  </div>
+
+  <!-- Notes panel -->
+  <div id="tab-notes" class="tool-panel hidden">
+    <!-- Rendered dynamically by renderNotesPanel -->
+  </div>
+
+  <!-- Strategy panel (sub-tabs: Negotiate / Library) -->
+  <div id="tab-strategy" class="tool-panel hidden">
+    <!-- Rendered dynamically by renderStrategyPanel -->
+  </div>
+
+</aside>
+
+  </div><!-- /workspace -->
+</div><!-- /app -->
+
+<!-- ============================================================
+     MODALS
+     ============================================================ -->
+
+<!-- Snapshot Modal -->
+
+<div id="snapshotModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>Snapshots</h2>
+      <button id="closeSnapshotsBtn" class="btn btn-sm btn-ghost">✕</button>
+    </div>
+<div class="snapshot-modal-tools"><select id="snapshotStageSelect" class="snapshot-stage-select"><option value="">No stage</option><option value="Pre-counterparty send">Pre-counterparty send</option><option value="Post-Round-1">Post-Round-1</option><option value="Pre-sign">Pre-sign</option></select><input id="snapshotLabelInput" class="snapshot-label-input" type="text" placeholder="Optional label (e.g. Liability settled)"><button id="snapshotSaveConfirmBtn" class="btn btn-sm btn-primary" type="button">Save snapshot</button></div>
+<div id="snapshotList" class="snapshot-list"></div>
+    <div id="snapshotDiffOutput" class="snapshot-diff-output hidden"></div>
+  </div>
+</div>
+
+<!-- Export Hub Modal -->
+
+<div id="exportHubModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 id="exportHubTitle">Share &amp; handoff</h2>
+      <button id="closeExportHubBtn" class="btn btn-sm btn-ghost">✕</button>
+    </div>
+    <div id="exportHubNotice" class="export-hub-notice hidden"></div>
+    <details class="tool-card compact output-choice-guide" data-hub-section="share" open>
+      <summary><strong>Choose by task</strong><span class="mini">What should I use?</span></summary>
+      <div class="output-choice-grid">
+        <div><strong>Continue drafting in Word</strong><span>Word drafting handoff</span></div>
+        <div><strong>Prepare a counterparty call</strong><span>Internal negotiation prep / pack</span></div>
+        <div><strong>Obtain internal approval</strong><span>Approval or leadership pack</span></div>
+        <div><strong>Share a controlled summary</strong><span>Review report with the correct audience preset</span></div>
+        <div><strong>Audit how the review was produced</strong><span>Evidence ledger CSV</span></div>
+        <div><strong>Move or back up the matter</strong><span>Session JSON or bundle</span></div>
+      </div>
+    </details>
+    <div class="tool-card compact" data-hub-section="share">
+      <label for="exportHubPresetSelect"><strong>Review report preset</strong></label>
+      <select id="exportHubPresetSelect">
+        <option value="internal">Internal</option>
+        <option value="client">Client-facing</option>
+        <option value="executive">Executive</option>
+      </select>
+    </div>
+    <div class="export-hub-sections">
+      <div class="export-group-label" data-hub-section="share"><strong>Primary outputs</strong><span>Four outputs covering drafting, discussion, approval and governance</span></div>
+      <div class="tool-card compact primary-output-card" data-hub-section="share">
+        <div class="export-hub-grid primary-output-grid">
+          <button id="hubExportWordHandoffBtn" class="btn btn-primary" type="button"><strong>Word drafting handoff</strong><span>Continue drafting beside the source DOCX</span></button>
+          <button id="hubExportReportBtn" class="btn" type="button"><strong>Counterparty summary</strong><span>Uses the selected audience preset and approved wording gate</span></button>
+          <button id="hubExportApprovalBtn" class="btn" type="button"><strong>Approval pack</strong><span>Obtain a structured internal decision</span></button>
+          <button id="hubExportEvidenceLedgerBtn" class="btn" type="button"><strong>Evidence ledger</strong><span>QA, provenance and governance record</span></button>
+        </div>
+        <div class="mini handoff-caveat">The Word handoff does not edit the source DOCX or create tracked changes.</div>
+      </div>
+      <details class="export-group-details" data-hub-section="share">
+        <summary><strong>More internal outputs</strong><span class="mini">One place for working summaries and specialist packs</span></summary>
+        <div class="tool-card compact">
+          <h4>Configurable internal summary</h4>
+          <div class="mini-label">Negotiation — Internal Legal</div>
+          <div class="mini">Choose the format that best fits the immediate internal task.</div>
+          <div class="internal-summary-config">
+            <label for="internalSummaryType">Internal format</label>
+            <select id="internalSummaryType">
+              <option value="email">Email summary</option><option value="working">Working notes</option><option value="agenda">Counterparty-call prep</option><option value="pack">Negotiation pack</option><option value="changes">Change instructions</option><option value="issues">Issue hotlist</option><option value="leadership">Leadership briefing</option>
+            </select>
+            <button id="hubInternalSummaryBtn" class="btn btn-primary" type="button">Create internal summary</button>
+          </div>
+          <div class="hidden" aria-hidden="true">
+            <button id="hubExportEmailBtn" type="button"></button><button id="hubExportWorkingNotesBtn" type="button"></button><button id="hubExportAgendaBtn" type="button"></button><button id="hubExportPackBtn" type="button"></button><button id="hubExportChangesBtn" type="button"></button><button id="hubExportIssuesBtn" type="button"></button><button id="hubExportLeadershipIssuesBtn" type="button"></button>
+          </div>
+        </div>
+        <div class="tool-card compact">
+          <h4>Preview before download</h4>
+          <div class="export-hub-grid">
+            <button id="hubPreviewWordHandoffBtn" class="btn" type="button">Preview Word handoff</button>
+            <button id="hubPreviewNegotiationPackBtn" class="btn" type="button">Preview negotiation pack</button>
+            <button id="hubPreviewApprovalPackBtn" class="btn" type="button">Preview approval pack</button>
+          </div>
+        </div>
+      </details>
+      <details class="export-group-details" data-hub-section="matter" open>
+        <summary><strong>Matter &amp; recovery</strong><span class="mini">Local matters, snapshots, backups and workspaces</span></summary>
+      <div class="tool-card compact">
+        <h4>Recent matters — Local recovery</h4>
+        <div class="mini">Matter-specific autosaves on this browser only. Opening another matter first preserves the current review as a recovery snapshot.</div>
+        <div id="hubRecentMattersList" class="recent-matters-list"><div class="mini">Checking local matters…</div></div>
+      </div>
+      <div class="tool-card compact">
+        <h4>Session — Confidential backup</h4>
+        <div class="mini">Contains the full review state. Store and share as confidential matter data.</div>
+        <div class="export-hub-grid">
+          <button id="hubExportStateBtn" class="btn" type="button">Session JSON</button>
+          <button id="hubExportBundleBtn" class="btn" type="button">Session bundle</button>
+          <button id="hubSnapshotsBtn" class="btn" type="button">Manage snapshots</button>
+          <button id="hubSaveSnapshotBtn" class="btn" type="button">Save snapshot</button>
+        </div>
+      </div>
+      <div class="tool-card compact">
+        <h4>Workspaces</h4>
+        <div class="workspace-manager-grid">
+          <select id="hubWorkspaceSelect"></select>
+          <button id="hubSaveWorkspaceBtn" class="btn" type="button">Save current</button>
+          <button id="hubApplyWorkspaceBtn" class="btn" type="button">Apply</button>
+          <button id="hubDeleteWorkspaceBtn" class="btn btn-ghost" type="button">Delete</button>
+          <button id="hubStartRoundBtn" class="btn" type="button">Start round</button>
+        </div>
+      </div>
+      </details>
+      <details class="export-group-details" data-hub-section="matter">
+        <summary><strong>Advanced controls</strong><span class="mini">Data controls, diagnostics and power-user tools</span></summary>
+      <div class="tool-card compact">
+        <h4>Controls</h4>
+        <div class="export-hub-grid">
+          <button id="hubDataControlsBtn" class="btn" type="button">Data controls</button>
+          <button id="hubDiagnosticsBtn" class="btn hidden" type="button">Developer diagnostics</button>
+          <button id="hubOpenCommandPaletteBtn" class="btn" type="button">Command palette</button>
+          <button id="hubToggleFocusBtn" class="btn" type="button">Focus mode</button>
+          <button id="hubOpenShortcutsBtn" class="btn" type="button">Shortcuts</button>
+        </div>
+      </div>
+      </details>
+    </div>
+  </div>
+</div>
+
+<!-- Source correction preview -->
+<div id="sourceCorrectionModal" class="modal-overlay hidden">
+  <div class="modal-card source-correction-dialog">
+    <div class="modal-head">
+      <h2 id="sourceCorrectionTitle">Correct source structure</h2>
+      <button id="closeSourceCorrectionBtn" class="btn btn-sm btn-ghost" type="button">✕</button>
+    </div>
+    <p id="sourceCorrectionDescription" class="mini"></p>
+    <div id="sourceCorrectionCandidates" class="source-correction-candidates"></div>
+    <label id="sourceSplitMarkerLabel"><span>First words of the next clause</span><input id="sourceSplitMarkerInput" type="text" autocomplete="off" placeholder="Paste or type an exact boundary marker"></label>
+    <div id="sourceCorrectionPreview" class="source-correction-preview"></div>
+    <div class="modal-actions"><button id="cancelSourceCorrectionBtn" class="btn btn-ghost" type="button">Cancel</button><button id="confirmSourceCorrectionBtn" class="btn btn-primary" type="button">Apply correction</button></div>
+  </div>
+</div>
+
+<!-- Source assurance: outputs remain blocked until a scoped route is completed -->
+<div id="sourceAssuranceModal" class="modal-overlay hidden">
+  <div class="modal-card source-assurance-dialog">
+    <div class="modal-head">
+      <h2>Verify omitted source content</h2>
+      <button id="closeSourceAssuranceBtn" class="btn btn-sm btn-ghost" type="button">✕</button>
+    </div>
+    <div id="sourceAssuranceWarnings" class="source-ledger-warning"></div>
+    <label><span>Add material omitted text</span><textarea id="sourceSupplementText" rows="7" placeholder="Paste any material footnote, endnote, tracked deletion or other omitted provision here. It will become a separately traceable review clause."></textarea></label>
+    <div class="assurance-or">or</div>
+    <label class="assurance-checkbox"><input id="sourceNoMaterialOmissionCheckbox" type="checkbox"><span>I reviewed the omitted source content and confirm that it contains no material provisions that need to be incorporated into this review.</span></label>
+    <div class="modal-actions"><button id="cancelSourceAssuranceBtn" class="btn btn-ghost" type="button">Cancel</button><button id="confirmSourceAssuranceBtn" class="btn btn-primary" type="button">Record source assurance</button></div>
+  </div>
+</div>
+
+<!-- Playbook Guidance Modal -->
+<div id="playbookGuidanceModal" class="modal-overlay hidden">
+  <div class="modal-card playbook-guidance-drawer">
+    <div class="modal-head">
+      <h2>Playbook guidance</h2>
+      <button id="closePlaybookGuidanceBtn" class="btn btn-sm btn-ghost" type="button">✕</button>
+    </div>
+    <div id="playbookGuidanceBody"></div>
+  </div>
+</div>
+
+<!-- Playbook Decision Preview Modal -->
+<div id="playbookDecisionPreviewModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>Preview playbook action</h2>
+      <button id="closePlaybookDecisionPreviewBtn" class="btn btn-sm btn-ghost" type="button">✕</button>
+    </div>
+    <div id="playbookDecisionPreviewBody"></div>
+    <div class="modal-actions">
+      <button id="cancelPlaybookDecisionPreviewBtn" class="btn btn-ghost" type="button">Cancel</button>
+      <button id="applyPlaybookDecisionPreviewBtn" class="btn btn-primary" type="button">Apply changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Data Controls Modal -->
+
+<div id="dataControlsModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>Local Data Controls</h2>
+      <button id="closeDataControlsBtn" class="btn btn-sm btn-ghost">✕</button>
+    </div>
+    <div class="tool-card compact">
+      <label style="display:flex;align-items:center;gap:.5rem;margin:0;">
+        <input id="disableAutosaveToggle" type="checkbox">
+        <span>Disable autosave for this browser</span>
+      </label>
+      <p class="mini" style="margin:.5rem 0 0 .1rem;">When disabled, the cockpit will not write autosave sessions to IndexedDB. Exports and snapshots remain manual.</p>
+      <label style="display:flex;align-items:center;gap:.5rem;margin:1rem 0 0;">
+        <input id="autoAdvanceToggle" type="checkbox">
+        <span>Auto-advance to the next clause after setting a decision</span>
+      </label>
+      <p class="mini" style="margin:.5rem 0 0 .1rem;">Moves forward through substantive clauses in stable document order and wraps only after the end.</p>
+    </div>
+    <div class="export-hub-grid">
+      <button id="clearAutosaveBtn" class="btn" type="button">Clear autosave</button>
+      <button id="clearSnapshotsBtn" class="btn" type="button">Clear snapshots</button>
+      <button id="clearLibraryBtn" class="btn" type="button">Clear precedent library</button>
+      <button id="wipeAllDataBtn" class="btn btn-danger" type="button">Wipe all local data</button>
+    </div>
+    <p class="mini">Wipe removes contract review data and preferences from this browser. The installed offline app shell contains no contract content and remains available.</p>
+  </div>
+</div>
+
+<!-- Output Preview Modal -->
+
+<div id="outputPreviewModal" class="modal-overlay hidden">
+  <div class="modal-card output-preview-card">
+    <div class="modal-head">
+      <h2 id="outputPreviewTitle">Output preview</h2>
+      <button id="closeOutputPreviewBtn" class="btn btn-sm btn-ghost">✕</button>
+    </div>
+    <div id="outputPreviewBody" class="output-preview-body"></div>
+    <div class="card-actions">
+      <button id="copyOutputPreviewBtn" class="btn btn-primary" type="button">Copy text</button>
+      <button id="downloadOutputPreviewBtn" class="btn" type="button">Download .txt</button>
+      <button id="printOutputPreviewBtn" class="btn" type="button">Print / Save PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- Diagnostics Modal -->
+
+<div id="diagnosticsModal" class="modal-overlay hidden">
+  <div class="modal-card diagnostics-card">
+    <div class="modal-head">
+      <h2>Diagnostics</h2>
+      <button id="closeDiagnosticsBtn" class="btn btn-sm btn-ghost">✕</button>
+    </div>
+    <div id="diagnosticsBody"></div>
+  </div>
+</div>
+
+<!-- Library Modal -->
+
+<div id="libraryModal" class="modal-overlay library-modal hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 id="libraryFormTitle">Add to library</h2>
+      <button id="closeLibraryModalBtn" class="btn btn-sm btn-ghost">✕</button>
+    </div>
+    <form id="libraryForm" autocomplete="off">
+      <input type="hidden" id="libraryEntryId" value="">
+      <label for="libraryTitleInput">Title</label>
+      <input type="text" id="libraryTitleInput" placeholder="Clause title">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px;">
+        <div>
+          <label for="libraryTypeInput">Type</label>
+          <input type="text" id="libraryTypeInput" placeholder="e.g. Limitation of Liability">
+        </div>
+        <div>
+          <label for="libraryTagsInput">Tags (comma-separated)</label>
+          <input type="text" id="libraryTagsInput" placeholder="e.g. IP, indemnity">
+        </div>
+      </div>
+      <label for="libraryStandardPositionInput">Standard position</label>
+      <input type="text" id="libraryStandardPositionInput" placeholder="Your standard negotiating position">
+      <label for="libraryFallbackPositionInput">Fallback position</label>
+      <input type="text" id="libraryFallbackPositionInput" placeholder="Acceptable fallback">
+      <label for="libraryNegotiatingPointsInput">Negotiating points</label>
+      <textarea id="libraryNegotiatingPointsInput" rows="2" placeholder="Key arguments and rationale"></textarea>
+      <label for="libraryNotesInput">Notes</label>
+      <textarea id="libraryNotesInput" rows="2" placeholder="Additional notes"></textarea>
+      <label for="libraryTextInput">Clause text</label>
+      <textarea id="libraryTextInput" rows="4" placeholder="Full clause text"></textarea>
+      <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:10px;">
+        <button type="button" id="cancelLibraryModalBtn" class="btn btn-sm btn-ghost">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary">Save</button>
+      </div>
+    </form>
+    <input type="file" id="libraryImportInput" accept=".json" style="display:none">
+  </div>
+</div>
+
+<!-- Shortcuts Modal -->
+
+<div id="shortcutsModal" class="modal-overlay shortcuts-modal hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>Keyboard shortcuts</h2>
+      <button id="closeShortcutsBtn" class="btn btn-sm btn-ghost">✕</button>
+    </div>
+    <div class="shortcut-grid">
+      <kbd>↑ / ↓</kbd> <span>Navigate clauses</span>
+      <kbd>[ / ]</kbd> <span>Navigate clause history back / forward</span>
+      <kbd>Enter</kbd> <span>Select clause</span>
+      <kbd>A</kbd> <span>Decision: Accept</span>
+      <kbd>C</kbd> <span>Decision: Accept with changes</span>
+      <kbd>S</kbd> <span>Decision: Seek amendment</span>
+      <kbd>R</kbd> <span>Decision: Reject</span>
+      <kbd>L</kbd> <span>Decision: Escalate</span>
+      <kbd>I</kbd> <span>Decision: Need input</span>
+      <kbd>M</kbd> <span>My inbox filter</span>
+      <kbd>N</kbd> <span>Add note</span>
+      <kbd>E</kbd> <span>Next unreviewed</span>
+      <kbd>O</kbd> <span>Next obligation</span>
+      <kbd>1–4</kbd> <span>Switch additional view tab</span>
+      <kbd>Alt+1–4</kbd> <span>Switch stage</span>
+      <kbd>F</kbd> <span>Toggle focus mode</span>
+      <kbd>Ctrl+Z</kbd> <span>Undo</span>
+      <kbd>Ctrl+Shift+Z</kbd> <span>Redo</span>
+      <kbd>Ctrl+F</kbd> <span>Focus search</span>
+      <kbd>?</kbd> <span>Show this help</span>
+      <kbd>Esc</kbd> <span>Close modals / side-peek</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     INLINE NOTE FORM TEMPLATE (cloned by JS)
+     ============================================================ -->
+
+<template id="noteFormTemplate">
+  <form class="note-form" data-action="submit-note">
+    <div class="form-row">
+      <div>
+        <label>Type</label>
+        <select name="type">
+          <option value="General Comment">General Comment</option>
+          <option value="Risk">Risk</option>
+          <option value="Query">Query</option>
+          <option value="Business Input">Business Input</option>
+          <option value="Drafting Issue">Drafting Issue</option>
+          <option value="Commercial Issue">Commercial Issue</option>
+          <option value="Follow-Up">Follow-Up</option>
+        </select>
+      </div>
+      <div>
+        <label>Route to</label>
+        <select name="routeTo">
+          <option value="">Legal only</option>
+          <option value="Business">Business</option>
+          <option value="Privacy">Privacy</option>
+          <option value="Finance">Finance</option>
+          <option value="Leadership">Leadership</option>
+        </select>
+      </div>
+    </div>
+    <label>Note</label>
+    <div class="note-composer-wrap">
+      <textarea name="text" rows="3" placeholder="Type your note…  (Tip: type / for templates & routing)" required></textarea>
+      <div class="note-slash-menu hidden" data-note-slash-menu></div>
+    </div>
+    <label>Owner / initials (optional)</label>
+    <input type="text" name="owner" placeholder="e.g. HP" maxlength="12">
+    <label>Proposed fallback (optional)</label>
+    <input type="text" name="proposedFallback" placeholder="Alternative language or position">
+    <div class="checkbox-row">
+      <label><input type="checkbox" name="blocker"> Blocker</label>
+      <label><input type="checkbox" name="businessCall"> Business call</label>
+    </div>
+    <div class="btn-row">
+      <button type="button" class="btn btn-xs btn-ghost" data-action="cancel-note">Cancel</button>
+      <button type="submit" class="btn btn-xs btn-primary">Save note</button>
+    </div>
+  </form>
+</template>
+
+<!-- ============================================================
+     MOBILE NAVIGATION
+     ============================================================ -->
+
+<div id="mobileBackdrop" class="mobile-backdrop hidden"></div>
+
+<div id="mobileToolLauncher" class="mobile-tool-launcher hidden">
+  <h3>Advanced tools</h3>
+  <p class="mini">Optional views and utilities. Your main work stays in Checks, Full Review, Resolve, and Export.</p>
+  <div id="mobileToolsMenu" class="mobile-menu-grid">
+    <button type="button" class="mobile-menu-item" data-mobile-action="summary">Overview</button>
+    <button type="button" class="mobile-menu-item" data-mobile-action="queue">Clause queue</button>
+    <button type="button" class="mobile-menu-item" data-mobile-action="packs">Context &amp; packs</button>
+    <button type="button" class="mobile-menu-item" data-mobile-action="report">All exports</button>
+    <button type="button" class="mobile-menu-item" data-mobile-action="snapshots">Snapshots</button>
+    <button type="button" class="mobile-menu-item" data-mobile-action="shortcuts">Shortcuts</button>
+    <button type="button" class="mobile-menu-item" data-mobile-action="focus">Focus</button>
+    <button type="button" class="mobile-menu-item" data-mobile-action="theme">Theme</button>
+    <button type="button" class="mobile-menu-item" data-mobile-action="new">New doc</button>
+  </div>
+</div>
+
+<nav id="mobileBottomNav" class="mobile-bottom-nav hidden">
+  <div class="nav-row">
+    <button class="mobile-nav-btn" data-mobile-stage="intake">
+      <span class="nav-icon-mobile">◎</span>
+      <span>Checks</span>
+    </button>
+    <button class="mobile-nav-btn active" data-mobile-stage="decide">
+      <span class="nav-icon-mobile">✓</span>
+      <span>Review</span>
+    </button>
+    <button class="mobile-nav-btn" data-mobile-stage="prepare">
+      <span class="nav-icon-mobile">↔</span>
+      <span>Resolve</span>
+    </button>
+    <button class="mobile-nav-btn" data-mobile-stage="close">
+      <span class="nav-icon-mobile">⇧</span>
+      <span>Export</span>
+    </button>
+  </div>
+</nav>
+
+<!-- ============================================================
+     HIDDEN UTILITY INPUTS
+     ============================================================ -->
+
+
+
+<div id="commandPaletteModal" class="modal-overlay hidden">
+  <div class="modal-card command-palette-card">
+    <div class="modal-head">
+      <h2>Command palette</h2>
+      <button id="closeCommandPaletteBtn" class="btn btn-sm btn-ghost">✕</button>
+    </div>
+    <input id="commandPaletteInput" class="search-input command-palette-input" type="search" placeholder="Search commands…">
+    <div id="commandPaletteList" class="command-palette-list"></div>
+    <div class="mini" style="margin-top:.5rem;">Tip: Press Ctrl/Cmd + K to open.</div>
+  </div>
+</div>
+
+
+
+
+
+<!-- Preferences Modal -->
+<div id="prefsModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>Preferences</h2>
+      <button id="closePrefsModalBtn" class="btn btn-sm btn-ghost">✕</button>
+    </div>
+
+    <div class="tool-card compact">
+      <h4>Appearance</h4>
+      <div class="prefs-row">
+        <span class="prefs-label">Theme</span>
+        <div class="btn-row" style="margin:0;">
+          <button id="prefsDarkBtn" class="btn btn-sm" type="button">Dark</button>
+          <button id="prefsLightBtn" class="btn btn-sm" type="button">Light</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-card compact">
+      <h4>Review behaviour</h4>
+      <label class="prefs-toggle-row">
+        <input type="checkbox" id="prefsAutoAdvanceToggle">
+        <span>Auto-advance to next clause after setting a decision</span>
+      </label>
+      <label class="prefs-toggle-row" style="margin-top:10px;">
+        <input type="checkbox" id="prefsContrastToggle">
+        <span>Contrast mode — dim clauses similar to stored precedents</span>
+      </label>
+      <div class="prefs-row" style="margin-top:10px;">
+        <label for="prefsInitialsInput" class="prefs-label">My Inbox initials</label>
+        <input type="text" id="prefsInitialsInput" class="prefs-initials-input"
+               maxlength="6" placeholder="e.g. HP" autocomplete="off">
+      </div>
+      <p class="mini" style="margin:4px 0 0;">Used to filter notes and routing tagged to you.</p>
+    </div>
+
+    <details class="tool-card compact optional-workbench-settings">
+      <summary><strong>Optional workbench modules</strong><span class="mini">Off by default to keep review focused</span></summary>
+      <p class="mini">Enable only when the additional analytical view changes the next legal action.</p>
+      <label class="prefs-toggle-row"><input type="checkbox" data-optional-feature="counterpartyLens"><span>Counterparty lens</span></label>
+      <label class="prefs-toggle-row"><input type="checkbox" data-optional-feature="positionDrift"><span>Position drift</span></label>
+      <label class="prefs-toggle-row"><input type="checkbox" data-optional-feature="documentLineage"><span>Document lineage</span></label>
+      <label class="prefs-toggle-row"><input type="checkbox" data-optional-feature="riskHeatmap"><span>Risk heatmap</span></label>
+      <label class="prefs-toggle-row"><input type="checkbox" data-optional-feature="microAgenda"><span>Micro-agenda</span></label>
+      <label class="prefs-toggle-row"><input type="checkbox" id="prefsDeveloperModeToggle"><span>Developer diagnostics</span></label>
+    </details>
+
+    <div class="tool-card compact">
+      <h4>Data</h4>
+      <label class="prefs-toggle-row">
+        <input type="checkbox" id="prefsDisableAutosaveToggle">
+        <span>Disable autosave for this browser</span>
+      </label>
+      <p class="mini" style="margin:4px 0 8px;">When disabled, sessions are not written to IndexedDB. Exports and snapshots remain manual.</p>
+      <div class="export-hub-grid" style="margin-top:8px;">
+        <button id="prefsClearAutosaveBtn" class="btn btn-sm" type="button">Clear autosave</button>
+        <button id="prefsClearSnapshotsBtn" class="btn btn-sm" type="button">Clear snapshots</button>
+        <button id="prefsClearLibraryBtn" class="btn btn-sm" type="button">Clear precedent library</button>
+        <button id="prefsWipeAllBtn" class="btn btn-sm btn-danger" type="button">Wipe all local data</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="analysis-core.js"></script>
+<script src="review-core.js"></script>
+<script src="workflow-core.js"></script>
+<script src="playbook-core.js"></script>
+<script src="app.js"></script>
+<script src="shell-files.js"></script>
+<script src="pwa.js" defer></script>
+
+</body>
+</html>

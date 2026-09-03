@@ -1,0 +1,27 @@
+{
+  "id": "contract-cockpit-mobile",
+  "name": "Contract Drafting & Review Cockpit",
+  "short_name": "Contract Cockpit",
+  "description": "Private, offline-first contract drafting and review workspace.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f5f0e6",
+  "theme_color": "#102f2c",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
