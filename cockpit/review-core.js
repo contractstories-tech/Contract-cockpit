@@ -1,4 +1,4 @@
-/* Contract Cockpit v7.6: pure trust, source-provenance and review-identity helpers. */
+/* Contract Cockpit v7.6.1: pure trust, source-provenance and review-identity helpers. */
 (function attachContractCockpitReview(root) {
   const clean=value=>String(value||'').replace(/\s+/g,' ').trim();
   const key=value=>clean(value).toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu,'-').replace(/^-|-$/g,'');

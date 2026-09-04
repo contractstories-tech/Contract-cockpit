@@ -1,4 +1,4 @@
-/* Contract Cockpit v7.6: pure analysis helpers shared by the app and regression tests. */
+/* Contract Cockpit v7.6.1: pure analysis helpers shared by the app and regression tests. */
 (function attachContractCockpitAnalysis(root) {
   const clean = value => String(value || '')
     .replace(/[\u2018\u2019]/g, "'")
@@ -62,20 +62,10 @@
 
   const SENTENCE_ABBREVIATION_RE = /\b(cl|sec|art|no|para|fig|vol|pp|dr|mr|mrs|ms|prof|inc|ltd|corp|co|plc|llc|llp|etc|approx|est|dept|govt|univ)\.(?=\s)/gi;
   function splitLegalSentences(value) {
-    const text = String(value || '').replace(/\r?\n+/g, ' ');
-    if (!text.trim()) return [];
-    // Protect decimals (99.5%, cl. 3.2), citation abbreviations (cl., sec., art.) and "e.g./i.e." from being
-    // read as sentence-ending periods before splitting, then restore them inside each resulting sentence.
-    const DOT = String.fromCharCode(1);
-    const protectedText = text
-      .replace(/(\d)\.(\d)/g, `$1${DOT}$2`)
-      .replace(/\b(?:e\.g|i\.e)\.(?=[\s,])/gi, m => m.replace(/\./g, DOT))
-      .replace(SENTENCE_ABBREVIATION_RE, `$1${DOT}`);
-    return protectedText
-      .split(/(?<=[.!?;])\s+|\s+(?=(?:provided that|except that|however|but)\b)/i)
-      .map(s => s.split(DOT).join('.'))
-      .map(clean)
-      .filter(Boolean);
+    const text=String(value||'').replace(/\r?\n+/g,' ');if(!text.trim())return[];
+    const dot=String.fromCharCode(1);
+    const protectedText=text.replace(/(\d)\.(\d)/g,`$1${dot}$2`).replace(/\b(?:e\.g|i\.e)\.(?=[\s,])/gi,match=>match.replace(/\./g,dot)).replace(SENTENCE_ABBREVIATION_RE,`$1${dot}`);
+    return protectedText.split(/(?<=[.!?;])\s+|\s+(?=(?:provided that|except that|however|but)\b)/i).map(sentence=>sentence.split(dot).join('.')).map(clean).filter(Boolean);
   }
 
   const PROPOSITION_CATEGORIES = [
@@ -445,8 +435,9 @@
     ].filter(Boolean))].sort((a,b)=>b.length-a.length);
     const partyPattern = partyNames.map(v=>v.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');
     const actorPattern = new RegExp(`\\b(${partyPattern})\\b`, 'gi');
-    const actionPattern = /\b(shall not|must not|may not|agrees not to|is strictly prohibited from|shall|must|will|is required to|agrees to|undertakes to|is obliged to|covenants to|commits to|shall ensure|shall cause|is responsible for|may|is entitled to|has the right to)\b/gi;
-    const countdownPattern = /\b(within\s+(?:(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|thirty|forty-five|sixty|ninety|\d+(?:\s+\d+)?)(?:\s*\((?:\d+|[a-z]+(?:-[a-z]+)*)\))?\s+)(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)(?:\s+(?:after|before|from|of|following)\s+[^.;,]{1,80}?(?=\s+(?:and|or|but|shall|must|will|may)\b|[.;,]|$))?|(?:a\s+)?period\s+of\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:days?|weeks?|months?|years?)\s+(?:after|before|from|following)\s+[^.;,]{1,80}?(?=\s+(?:and|or|but|shall|must|will|may)\b|[.;,]|$)|not\s+less\s+than\s+(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)\s+prior|(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*days?['’]?\s+(?:written\s+|prior\s+|advance\s+)?notice|(?:more|less)\s+than\s+(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)|no later than\s+(?:\d+(?:\s*\((?:\d+|[a-z]+(?:-[a-z]+)*)\))?\s+)?(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)(?:\s+(?:after|before|from|of)\s+[^.;,]{1,80}?(?=\s+(?:and|or|but|shall|must|will|may)\b|[.;,]|$))?|on or before\s+[^.;,]{1,80}?(?=\s+(?:and|or|but|shall|must|will|may)\b|[.;,]|$)|by\s+[A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})\b/i;
+    const actionPattern = /\b(shall not|must not|may not|agrees not to|is strictly prohibited from|shall|must|will|is required to|agrees to|undertakes to|is obliged to|covenants to|commits to|shall ensure|shall cause|is responsible for)\b/gi;
+    const countdownPattern = /\b(within\s+(?:(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|thirty|forty-five|sixty|ninety|\d+(?:\s+\d+)?)(?:\s*\((?:\d+|[a-z]+(?:-[a-z]+)*)\))?\s+)(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)(?:\s+(?:after|before|from|of|following)\s+[^.;,]+)?|(?:a\s+)?period\s+of\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:days?|weeks?|months?|years?)\s+(?:after|before|from|following)\s+[^.;,]+|not\s+less\s+than\s+(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)\s+prior|(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*days?['’]?\s+(?:written\s+|prior\s+|advance\s+)?notice|(?:more|less)\s+than\s+(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)|no later than\s+(?:\d+(?:\s*\((?:\d+|[a-z]+(?:-[a-z]+)*)\))?\s+)?(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)(?:\s+(?:after|before|from|of)\s+[^.;,]+)?|on or before\s+[^.;,]+|by\s+[A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})\b/i;
+    const noticePeriodPattern = /\b(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*days?['’]?\s+(?:(?:written|prior|advance)\s+){0,2}notice\b/i;
     const recurringPattern = /\b(?:daily|weekly|monthly|quarterly|annually|each\s+(?:day|week|month|quarter|year)|every\s+\d+\s+(?:days?|weeks?|months?))\b/i;
     const promptnessPattern = /\b(promptly|immediately|without undue delay|as soon as reasonably practicable)\b/i;
     const interpretivePattern = /\b(?:shall (?:solely )?be governed|shall prevail|shall control|shall be construed|shall be deemed|shall mean|shall include|in case of (?:conflict|discrepancy)|order of precedence|governing law|contractual relationship)\b/i;
@@ -466,7 +457,10 @@
         const actor=actorMatch?canonicalizeObligationParty(actorMatch[1],source):'Uncertain actor';
         const verbTail=sentence.slice(actionMatch.index+actionMatch[0].length).trim();
         if(!verbTail||/^(?:be governed|prevail|control|be construed|mean|include)\b/i.test(verbTail))continue;
-        const countdownAll=[...sentence.matchAll(new RegExp(countdownPattern.source,countdownPattern.flags.includes('g')?countdownPattern.flags:`${countdownPattern.flags}g`))].map(m=>m[0]);
+        const countdownAll=[
+          ...sentence.matchAll(new RegExp(countdownPattern.source,countdownPattern.flags.includes('g')?countdownPattern.flags:`${countdownPattern.flags}g`)),
+          ...sentence.matchAll(new RegExp(noticePeriodPattern.source,noticePeriodPattern.flags.includes('g')?noticePeriodPattern.flags:`${noticePeriodPattern.flags}g`))
+        ].map(m=>m[0]);
         const countdown=countdownAll[0]||'';
         const countdownSummary=[...new Set(countdownAll)].join('; ');
         const promptness=sentence.match(promptnessPattern)?.[0]||'';const recurring=sentence.match(recurringPattern)?.[0]||'';

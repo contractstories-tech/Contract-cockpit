@@ -1,3 +1,4 @@
+/* Contract Cockpit v7.6.1: workflow and decision primitives shared by the app and tests. */
 (function (global) {
   'use strict';
 
@@ -26,21 +27,9 @@
     const operativeLanguage = /\b(?:shall|must|will|agrees?\s+to|undertakes?\s+to|means|includes?|is\s+required\s+to)\b/i.test(`${heading} ${body}`);
     if (firstSourceBlock && titleShape && !operativeLanguage) return { reviewable: false, requiresDecision: false, reason: 'document-title-positional', confidence: 'medium' };
     if (/^(?:page\s+\d+(?:\s+of\s+\d+)?|table\s+of\s+contents|contents)$/i.test(heading)) return { reviewable: false, requiresDecision: false, reason: 'document-navigation', confidence: 'high' };
-    // A structural section heading (e.g. "12. Limitation of Liability") whose own operative text lives
-    // entirely in child clauses (12.1, 12.2, ...) has either no body of its own, or a body that is just
-    // an echo of its heading label (ingestion sometimes copies the heading text into body rather than
-    // leaving it empty — the label is not itself extra operative content). Either way there is nothing
-    // here for a lawyer to legally dispose of. It stays navigable and reviewable (it is a real source
-    // anchor and can carry aggregated risk from its children) but does not require its own decision.
-    // A long heading gets truncated with a trailing "… (number)" while body keeps the full text, so an
-    // exact-equality check alone misses those; falling back to a prefix match catches "the heading is
-    // just the start of the body, truncated" without weakening the operative-language guard below.
     const headingCore = heading.replace(/\s*\([^)]*\)\s*$/, '').replace(/[…]+$/, '').replace(/[.;:]+$/, '').trim().toLowerCase();
     const bodyNormalized = body.replace(/[.;:]+$/, '').trim().toLowerCase();
     const bodyIsBareHeadingEcho = !body || bodyNormalized === headingCore || (!!headingCore && bodyNormalized.startsWith(headingCore));
-    // Only a top-level section number (e.g. "12", "Article 1") is treated as structural, never a
-    // sub-numbered clause (e.g. "5.1", "12.1"): a dotted number is drafted as an individual operative
-    // provision far too often to exclude it on a keyword-incomplete "no operative language" heuristic.
     const isTopLevelSectionNumber = !/\d\.\d/.test(String(clause.number || ''));
     if (bodyIsBareHeadingEcho && !operativeLanguage && isTopLevelSectionNumber) return { reviewable: true, requiresDecision: false, reason: 'structural-heading', confidence: 'high' };
     return { reviewable: true, requiresDecision: true, reason: 'operative-or-uncertain', confidence: body || clause.number ? 'high' : 'medium' };

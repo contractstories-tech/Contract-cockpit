@@ -1,7 +1,7 @@
 (function attachContractCockpitShell(root){
   root.ContractCockpitShellFiles=Object.freeze({
     cachePrefix:'contract-cockpit-pwa-',
-    cacheName:'contract-cockpit-pwa-v7.6',
+    cacheName:'contract-cockpit-pwa-v7.6.1',
     required:Object.freeze([
       'index.html',
       'styles.css',

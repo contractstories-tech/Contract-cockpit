@@ -1,5 +1,5 @@
 /* ============================================================
-Contract Cockpit v7.6
+Contract Cockpit v7.6.1
 Local-only review, evidence-led outputs, and Word-adjacent drafting handoff
 ============================================================ */
 const DB_NAME = 'contract-cockpit-db';
@@ -13,36 +13,23 @@ const LIBRARY_KEY = 'clause-library-v7-0';
 const LEGACY_LIBRARY_KEYS = ['clause-library-v6-63','clause-library-v6-62-1','clause-library-v6-62','clause-library-v6-61','clause-library-v6-60','clause-library-v6-59','clause-library-v6-58','clause-library-v6-57','clause-library-v6-56','clause-library-v6-55','clause-library-v6-54','clause-library-v6-53','clause-library-v6-52','clause-library-v6-51','clause-library-v6-50','clause-library-v6-49','clause-library-v6-48','clause-library-v6-47','clause-library-v6-46','clause-library-v6-45','clause-library-v6-42','clause-library-v6-41','clause-library-v6-40','clause-library-v6-39','clause-library-v6-38','clause-library-v6-37','clause-library-v6-36','clause-library-v6-35','clause-library-v6-34','clause-library-v6-33-1','clause-library-v6-33','clause-library-v6-32','clause-library-v6-31','clause-library-v6-30','clause-library-v6-29','clause-library-v6-27'];
 LEGACY_DB_KEYS.unshift('autosave-v6-76','autosave-v6-75','autosave-v6-74','autosave-v6-73','autosave-v6-72','autosave-v6-71','autosave-v6-70','autosave-v6-69','autosave-v6-68','autosave-v6-67','autosave-v6-66','autosave-v6-65','autosave-v6-64');
 LEGACY_LIBRARY_KEYS.unshift('clause-library-v6-76','clause-library-v6-75','clause-library-v6-74','clause-library-v6-73','clause-library-v6-72','clause-library-v6-71','clause-library-v6-70','clause-library-v6-69','clause-library-v6-68','clause-library-v6-67','clause-library-v6-66','clause-library-v6-65','clause-library-v6-64');
-const BUILD_VERSION = '7.6';
-const ANALYZER_VERSION = '7.6.0';
+const BUILD_VERSION = '7.6.1';
+const ANALYZER_VERSION = '7.6.1';
 
-/* -- Global safety net: an uncaught exception must never fail silently. Without this, a mid-pipeline
-   error can leave rendering or analysis partially complete while the UI gives no indication anything
-   went wrong — the lawyer could believe a document was fully checked when it was not. -- */
-let __lastUncaughtIssueAt = 0;
-function handleUncaughtIssue(kind, err){
+let lastUncaughtIssueAt = 0;
+function handleUncaughtIssue(kind, error){
   try{
-    const now = Date.now();
-    const throttled = now - __lastUncaughtIssueAt < 4000;
-    __lastUncaughtIssueAt = now;
-    const message = (err && err.message) ? String(err.message) : String(err || 'Unknown error');
-    if (typeof state !== 'undefined' && state && state.diagnostics) {
-      state.diagnostics.lastError = `${kind}: ${message}`;
-      state.diagnostics.recentErrors = [{at: new Date().toISOString(), message: `${kind}: ${message}`}, ...(state.diagnostics.recentErrors || [])].slice(0, 20);
-    }
-    console.error(`[Contract Cockpit] ${kind}:`, err);
-    if (!throttled && typeof showToast === 'function') {
-      showToast('Something went wrong — the current view or analysis may be incomplete. Your work has been saved locally where possible.', 'error');
-    }
-    if (typeof scheduleAutosave === 'function' && typeof state !== 'undefined' && state && state.clauses && state.clauses.length) {
-      scheduleAutosave({reason:'critical'});
-    }
-  }catch(handlerErr){
-    console.error('[Contract Cockpit] error handler itself failed', handlerErr);
-  }
+    const now=Date.now();const throttled=now-lastUncaughtIssueAt<4000;lastUncaughtIssueAt=now;
+    const message=error?.message?String(error.message):String(error||'Unknown error');
+    if(typeof state!=='undefined'&&state?.diagnostics){state.diagnostics.lastError=`${kind}: ${message}`;state.diagnostics.recentErrors=[{at:new Date().toISOString(),message:`${kind}: ${message}`},...(state.diagnostics.recentErrors||[])].slice(0,20);}
+    console.error(`[Contract Cockpit] ${kind}:`,error);
+    if(!throttled&&typeof showToast==='function')showToast('Something went wrong — this view or analysis may be incomplete. Existing work remains local.','error');
+    if(typeof scheduleAutosave==='function'&&typeof state!=='undefined'&&!state?.analyzing&&state?.clauses?.length)scheduleAutosave({reason:'critical'});
+  }catch(handlerError){console.error('[Contract Cockpit] error handler failed',handlerError);}
 }
-window.addEventListener('error', e => handleUncaughtIssue('Unexpected error', e && e.error ? e.error : (e && e.message) || e));
-window.addEventListener('unhandledrejection', e => handleUncaughtIssue('Unexpected error', e && e.reason));
+window.addEventListener('error',event=>handleUncaughtIssue('Unexpected error',event?.error||event?.message||event));
+window.addEventListener('unhandledrejection',event=>handleUncaughtIssue('Unexpected rejection',event?.reason));
+
 const ANALYSIS_CORE = globalThis.ContractCockpitAnalysis || {};
 const REVIEW_CORE = globalThis.ContractCockpitReview || {};
 const WORKFLOW_CORE = globalThis.ContractCockpitWorkflow || {};
@@ -103,15 +90,11 @@ function getReviewableClauses() {
 }
 function clauseRequiresDecision(clause) {
   const override=state?.reviewabilityOverrides?.[clause?.id];
-  if(override==='include') return true;
-  if(override==='exclude') return false;
-  return typeof WORKFLOW_CORE.clauseRequiresDecision === 'function'
-    ? WORKFLOW_CORE.clauseRequiresDecision(clause)
-    : isReviewableClause(clause);
+  if(override==='include')return true;
+  if(override==='exclude')return false;
+  return typeof WORKFLOW_CORE.clauseRequiresDecision==='function'?WORKFLOW_CORE.clauseRequiresDecision(clause):isReviewableClause(clause);
 }
-function getDecisionRequiredClauses() {
-  return (state.clauses || []).filter(clauseRequiresDecision);
-}
+function getDecisionRequiredClauses(){return (state.clauses||[]).filter(clauseRequiresDecision);}
 
 const SAMPLE_TEXT_MSA = `MASTER SERVICES AGREEMENT
 
@@ -742,6 +725,7 @@ startIntent:'checks',
 preferredStartCheck:'review-items',
 activeCheck:'',
 returnToCheckArmed:false,
+checkReturnScrollTop:0,
 activeConcept:'',
 checkFilter:'all',
 checkCompletion:{},
@@ -940,6 +924,7 @@ libraryFallbackPositionInput:document.getElementById('libraryFallbackPositionInp
 libraryNegotiatingPointsInput:document.getElementById('libraryNegotiatingPointsInput'),
 libraryTextInput:document.getElementById('libraryTextInput'),
 cancelLibraryModalBtn:document.getElementById('cancelLibraryModalBtn'),
+reviewProgressMount:document.getElementById('reviewProgressMount'),
 outlineModeBtn:document.getElementById('outlineModeBtn'),
 triageModeBtn:document.getElementById('triageModeBtn'),
 libraryImportInput:document.getElementById('libraryImportInput'),
@@ -1086,7 +1071,7 @@ function getSelectedClause() {
 }
 function assertDomCritical(){
   const actualIds = new Set(Array.from(document.querySelectorAll('[id]')).map(el=>el.id));
-  const criticalIds = ['landing','app','fileInput','rawText','clauseList','clauseView','toolTabs','tab-summary','tab-review','tab-notes','tab-strategy','exportHubModal','dataControlsModal','snapshotModal','commandPaletteModal'];
+  const criticalIds = ['landing','app','fileInput','rawText','clauseList','clauseView','decisionFocusBtn','decisionFocusBar','toolTabs','tab-summary','tab-review','tab-notes','tab-strategy','exportHubModal','dataControlsModal','snapshotModal','commandPaletteModal'];
   const optionalIds = ['onboardingOverlay','workflowModes','cockpitStrip','annunciatorPanel','outputPreviewModal','diagnosticsModal'];
   const deprecatedIds = ['exportHubBtn','toggleFocusModeBtn','saveSnapshotBtn','showSnapshotsBtn','reportPresetSelect','shortcutsBtn'];
   const missingCritical = criticalIds.filter(id=>!actualIds.has(id));
@@ -1126,15 +1111,17 @@ function showConfirmDialog(message,options={}){
     overlay.innerHTML=`<div class="modal-card confirm-dialog-card"><div class="modal-head"><h2>${escapeHtml(options.title||'Confirm')}</h2></div><p class="confirm-dialog-message" style="white-space:pre-line">${escapeHtml(message)}</p><div class="card-actions"><button type="button" class="btn btn-ghost" data-confirm-cancel>${escapeHtml(options.cancelLabel||'Cancel')}</button><button type="button" class="btn btn-primary" data-confirm-ok>${escapeHtml(options.confirmLabel||'Confirm')}</button></div></div>`;
     document.body.appendChild(overlay);
     let settled=false;
-    const onKeydown=e=>{ if(e.key==='Escape'){ e.stopPropagation(); finish(false); } };
-    const finish=(result)=>{
-      if(settled)return; settled=true;
+    const onKeydown=event=>{if(event.key==='Escape'){event.stopPropagation();finish(false);}};
+    const finish=result=>{
+      if(settled)return;
+      settled=true;
       document.removeEventListener('keydown',onKeydown,true);
-      closeModal(overlay); overlay.remove();
+      closeModal(overlay);
+      overlay.remove();
       resolve(result);
     };
     document.addEventListener('keydown',onKeydown,true);
-    overlay.addEventListener('click',e=>{ if(e.target===overlay) finish(false); });
+    overlay.addEventListener('click',event=>{if(event.target===overlay)finish(false);});
     overlay.querySelector('[data-confirm-cancel]').addEventListener('click',()=>finish(false));
     overlay.querySelector('[data-confirm-ok]').addEventListener('click',()=>finish(true));
     openModal(overlay);
@@ -1319,9 +1306,9 @@ const NOTE_SLASH_COMMANDS = [
   {key:'route-finance',label:'Route to Finance',hint:'/finance',apply:(form)=>setFormRouteValue(form,'Finance')},
   {key:'route-leadership',label:'Route to Leadership',hint:'/leadership',apply:(form)=>setFormRouteValue(form,'Leadership')}
 ];
-function stripNoteSlashTrigger(val){ const str=String(val||''); const lines=str.split('\n'); if(lines.length && lines[lines.length-1].trimStart().startsWith('/')) lines.pop(); return lines.join('\n'); }
+function stripNoteSlashTrigger(value){const lines=String(value||'').split('\n');if(lines.length&&lines[lines.length-1].trimStart().startsWith('/'))lines.pop();return lines.join('\n');}
 function insertTemplateIntoForm(form,key){ const ta=form?.querySelector('textarea[name="text"]'); if(!ta) return; const tpl=NOTE_TEMPLATES[key]||''; const val=stripNoteSlashTrigger(ta.value); ta.value = val && !/\n$/.test(val) ? `${val}\n${tpl}` : `${val}${tpl}`; ta.dispatchEvent(new Event('input',{bubbles:true})); ta.focus(); }
-function setFormRouteValue(form,value){ const sel=form?.querySelector('select[name="routeTo"]'); if(!sel) return; sel.value=value||''; sel.dispatchEvent(new Event('change',{bubbles:true})); const ta=form?.querySelector('textarea[name="text"]'); if(ta){ ta.value=stripNoteSlashTrigger(ta.value); ta.dispatchEvent(new Event('input',{bubbles:true})); ta.focus(); } }
+function setFormRouteValue(form,value){ const sel=form?.querySelector('select[name="routeTo"]'); if(!sel) return; sel.value=value||''; sel.dispatchEvent(new Event('change',{bubbles:true})); const ta=form?.querySelector('textarea[name="text"]'); if(ta){ta.value=stripNoteSlashTrigger(ta.value);ta.dispatchEvent(new Event('input',{bubbles:true}));ta.focus();} }
 function getNoteSlashMenu(form){ return form?.querySelector('[data-note-slash-menu]'); }
 function closeNoteSlashMenu(form){ const menu=getNoteSlashMenu(form); if(menu){ menu.classList.add('hidden'); menu.innerHTML=''; delete menu.dataset.activeIndex; } }
 function openNoteSlashMenu(form, query=''){ const menu=getNoteSlashMenu(form); if(!menu) return; const q=String(query||'').replace(/^\//,'').trim().toLowerCase(); const items=NOTE_SLASH_COMMANDS.filter(cmd=>!q || cmd.key.includes(q) || cmd.label.toLowerCase().includes(q) || cmd.hint.toLowerCase().includes('/'+q)); if(!items.length){ closeNoteSlashMenu(form); return; } menu.dataset.activeIndex='0'; menu.innerHTML = items.map((cmd,idx)=>`<button type="button" class="note-slash-item ${idx===0?'active':''}" data-note-slash-index="${idx}" data-note-slash-key="${escapeHtml(cmd.key)}"><span>${escapeHtml(cmd.label)}</span><span class="hint">${escapeHtml(cmd.hint)}</span></button>`).join(''); menu.classList.remove('hidden'); menu.querySelectorAll('[data-note-slash-key]').forEach(btn=>btn.addEventListener('click',()=>applyNoteSlashCommand(form,btn.dataset.noteSlashKey))); }
@@ -1972,13 +1959,8 @@ function deriveClauseReviewStatus(cid){
   return 'Not reviewed';
 }
 function getClauseCompletionState(cid){
-  const decision=getClauseDecision(cid);
-  // A structural heading (see clauseRequiresDecision) has nothing for a lawyer to decide or verify
-  // against source, so it is treated as complete by default rather than permanently sitting in
-  // "unreviewed" counts because it was never offered a decision to make in the first place.
-  const clauseNeedsDecision=clauseRequiresDecision((state.clauses||[]).find(c=>c.id===cid));
-  const decisionComplete=!clauseNeedsDecision||(!!decision.type&&getDecisionCompletionState(cid).complete);
-  const sourceVerified=!clauseNeedsDecision||state.verificationByKey?.[`clause-source-${cid}`]==='confirmed';
+  const decision=getClauseDecision(cid);const needsDecision=clauseRequiresDecision((state.clauses||[]).find(clause=>clause.id===cid));const decisionComplete=!needsDecision||!!decision.type&&getDecisionCompletionState(cid).complete;
+  const sourceVerified=!needsDecision||state.verificationByKey?.[`clause-source-${cid}`]==='confirmed';
   const reviewComplete=decisionComplete&&sourceVerified;
   const approvalStatus=String(state.clauseApprovalStatus?.[cid]||decision.approvalStatus||'');
   const approvalResolved=decision.type!=='escalate'||approvalStatus==='Approved';
@@ -2165,7 +2147,7 @@ function computeSigningReadinessChecks(){
     {label:'No snoozed high-risk clauses', ok: snoozedHighRisk===0, count: snoozedHighRisk, action:'unsnooze'}
   ];
   const level = checks.every(c=>c.ok) ? 'Ready' : checks.filter(c=>!c.ok).length <= 2 ? 'Conditional' : 'Not Ready';
-  
+
 return {level, checks};
 }
 
@@ -2641,7 +2623,12 @@ function applySessionReturn(saved){ if(!saved || !saved.selectedClauseId || !sta
 function restoreSessionReturnScroll(){ const st=Number(state.sessionReturn?.scrollTop||0); if(els.clauseView && st>0) requestAnimationFrame(()=>{els.clauseView.scrollTop=st;}); }
 function getSessionResumeLabel(){ const cid=state.sessionReturn?.selectedClauseId; const clause=(state.clauses||[]).find(c=>c.id===cid); if(!clause) return ''; return `${clause.number||''} ${clause.heading||''}`.trim(); }
 function deriveBreadcrumbTrail(clause){ if(!clause) return []; const list=state.clauses||[]; const idx=list.findIndex(c=>c.id===clause.id); if(idx<0) return [clause]; const level=Number(clause.level||1); const trail=[clause]; let expected=level-1; for(let i=idx-1;i>=0 && expected>=1;i--){ const c=list[i]; if(Number(c.level||1)===expected){ trail.unshift(c); expected--; } } return trail; }
-function renderBreadcrumbBar(clause){ if(!els.breadcrumbBar) return; if(!clause || clause.id===OVERVIEW_ID){ els.breadcrumbBar.innerHTML=''; els.breadcrumbBar.classList.add('hidden'); return; } const trail=deriveBreadcrumbTrail(clause); els.breadcrumbBar.classList.remove('hidden'); const returningCheck=state.returnToCheckArmed&&state.activeCheck&&getActiveWorkflowStage()!=='intake'?CHECK_DEFINITIONS.find(d=>d.id===state.activeCheck):null; const returnChip=returningCheck?`<button type="button" class="breadcrumb-chip breadcrumb-return" data-return-to-check title="Return to where you left off in this check">← Back to ${escapeHtml(returningCheck.title)}</button><span class="breadcrumb-sep">›</span>`:''; els.breadcrumbBar.innerHTML=returnChip+trail.map((c,idx)=>`<button type="button" class="breadcrumb-chip" data-breadcrumb-id="${escapeHtml(c.id)}">${escapeHtml(c.number||c.heading||'Clause')}</button>${idx<trail.length-1?'<span class="breadcrumb-sep">›</span>':''}`).join(''); els.breadcrumbBar.querySelectorAll('[data-breadcrumb-id]').forEach(btn=>btn.addEventListener('click',()=>jumpToClause(btn.dataset.breadcrumbId))); els.breadcrumbBar.querySelector('[data-return-to-check]')?.addEventListener('click',()=>setWorkflowStage('intake',{preserveTab:false})); }
+function returnToFocusedCheck(){
+  state.returnToCheckArmed=false;
+  setWorkflowStage('intake',{preserveTab:false});
+  requestAnimationFrame(()=>{if(els.checksWorkspace)els.checksWorkspace.scrollTop=Number(state.checkReturnScrollTop||0);});
+}
+function renderBreadcrumbBar(clause){ if(!els.breadcrumbBar) return; if(!clause || clause.id===OVERVIEW_ID){ els.breadcrumbBar.innerHTML=''; els.breadcrumbBar.classList.add('hidden'); return; } const trail=deriveBreadcrumbTrail(clause); els.breadcrumbBar.classList.remove('hidden'); const returningCheck=state.returnToCheckArmed&&state.activeCheck&&getActiveWorkflowStage()!=='intake'?CHECK_DEFINITIONS.find(d=>d.id===state.activeCheck):null; const returnChip=returningCheck?`<button type="button" class="breadcrumb-chip breadcrumb-return" data-return-to-check title="Return to the focused check">← Back to ${escapeHtml(returningCheck.title)}</button><span class="breadcrumb-sep">›</span>`:''; els.breadcrumbBar.innerHTML=returnChip+trail.map((c,idx)=>`<button type="button" class="breadcrumb-chip" data-breadcrumb-id="${escapeHtml(c.id)}">${escapeHtml(c.number||c.heading||'Clause')}</button>${idx<trail.length-1?'<span class="breadcrumb-sep">›</span>':''}`).join(''); els.breadcrumbBar.querySelectorAll('[data-breadcrumb-id]').forEach(btn=>btn.addEventListener('click',()=>jumpToClause(btn.dataset.breadcrumbId))); els.breadcrumbBar.querySelector('[data-return-to-check]')?.addEventListener('click',returnToFocusedCheck); }
 function hidePeekCard(){ state.peekCard={open:false,type:'',targetId:'',term:''}; els.peekCard?.classList.add('hidden'); }
 function positionPeekCard(anchor){ const card=els.peekCard; if(!anchor||!card) return; card.classList.remove('hidden'); card.style.left='0px'; card.style.top='0px'; const r=anchor.getBoundingClientRect(); const cr=card.getBoundingClientRect(); let left=r.left+window.scrollX; left=Math.max(window.scrollX+12, Math.min(left, window.scrollX+window.innerWidth-cr.width-12)); let top=r.bottom+window.scrollY+10; if(top+cr.height>window.scrollY+window.innerHeight-12) top=r.top+window.scrollY-cr.height-10; card.style.left=`${left}px`; card.style.top=`${top}px`; }
 function showPeekCardForClause(targetClauseId, anchorEl) {
@@ -2763,12 +2750,16 @@ try{localStorage.setItem(ONBOARDED_KEY,'1');}catch{}
 function toggleFocusMode(force){const next=typeof force==='boolean'?force:!state.focusMode;if(next&&getActiveWorkflowStage()==='intake')setWorkflowStage('decide',{preserveTab:true});if(next&&state.decisionFocus){state.decisionFocus=false;applyDecisionFocus();}state.focusMode=next;applyFocusMode();renderClauseView();saveSessionReturn();}
 function applyFocusMode(){if(!els.app)return;els.app.classList.toggle('focus-mode',!!state.focusMode);if(els.hubToggleFocusBtn){els.hubToggleFocusBtn.textContent=state.focusMode?'Exit reading mode':'Reading mode';els.hubToggleFocusBtn.classList.toggle('active',!!state.focusMode);}if(els.readingModeBtn){els.readingModeBtn.textContent=state.focusMode?'Exit reading':'Read';els.readingModeBtn.classList.toggle('active',!!state.focusMode);els.readingModeBtn.setAttribute('aria-pressed',state.focusMode?'true':'false');}updateMobileUI();}
 
-/* -- Decision focus mode: one clause, decision bar only, no side panels -- */
+/* Decision focus keeps the legal-decision card but removes competing workspace chrome. */
 function toggleDecisionFocus(force){
   const next=typeof force==='boolean'?force:!state.decisionFocus;
   if(next){
     if(getActiveWorkflowStage()!=='decide')setWorkflowStage('decide',{preserveTab:true});
-    if(state.focusMode)state.focusMode=false;
+    if(state.focusMode){state.focusMode=false;applyFocusMode();}
+    if(!state.selectedClauseId||state.selectedClauseId===OVERVIEW_ID){
+      const first=getDecisionRequiredClauses().find(clause=>!getClauseDecision(clause.id).type)||getReviewableClauses()[0];
+      if(first)state.selectedClauseId=first.id;
+    }
   }
   state.decisionFocus=next;
   applyDecisionFocus();
@@ -2782,25 +2773,24 @@ function applyDecisionFocus(){
     els.decisionFocusBtn.textContent=state.decisionFocus?'Exit focus':'Focus';
     els.decisionFocusBtn.classList.toggle('active',!!state.decisionFocus);
     els.decisionFocusBtn.setAttribute('aria-pressed',state.decisionFocus?'true':'false');
+    els.decisionFocusBtn.setAttribute('aria-label',state.decisionFocus?'Exit decision focus':'Enter decision focus');
   }
   updateMobileUI();
 }
 function renderDecisionFocusBar(){
   if(!els.decisionFocusBar)return;
   const cid=state.selectedClauseId;
-  if(!state.decisionFocus||state.focusMode||!cid||cid===OVERVIEW_ID){
-    els.decisionFocusBar.classList.add('hidden');
-    els.decisionFocusBar.innerHTML='';
-    return;
-  }
-  const ids=getReviewableClauses().map(c=>c.id);
-  const idx=ids.indexOf(cid);
+  if(!state.decisionFocus||state.focusMode||!cid||cid===OVERVIEW_ID){els.decisionFocusBar.classList.add('hidden');els.decisionFocusBar.innerHTML='';return;}
+  const ids=getDecisionRequiredClauses().map(clause=>clause.id);
+  const index=ids.indexOf(cid);
   const remaining=ids.filter(id=>!getClauseDecision(id).type).length;
-  const prevId=idx>0?ids[idx-1]:'';
-  const nextId=(idx>=0&&idx<ids.length-1)?ids[idx+1]:'';
+  const previousId=index>0?ids[index-1]:'';
+  const nextId=index>=0&&index<ids.length-1?ids[index+1]:'';
+  const nextUndecidedId=ids.slice(index+1).find(id=>!getClauseDecision(id).type)||ids.slice(0,Math.max(0,index)).find(id=>!getClauseDecision(id).type)||'';
   els.decisionFocusBar.classList.remove('hidden');
-  els.decisionFocusBar.innerHTML=`<span class="decision-focus-progress">Clause ${idx>=0?idx+1:'?'} of ${ids.length} · ${remaining} remaining need a decision</span><span class="decision-focus-nav"><button type="button" class="link-btn" data-decision-focus-target="${escapeHtml(prevId)}" ${prevId?'':'disabled'}>← Previous</button><button type="button" class="link-btn" data-decision-focus-target="${escapeHtml(nextId)}" ${nextId?'':'disabled'}>Next →</button></span>`;
+  els.decisionFocusBar.innerHTML=`<span class="decision-focus-progress">Clause ${index>=0?index+1:'?'} of ${ids.length} · ${remaining} awaiting decision</span><span class="decision-focus-nav"><button type="button" class="link-btn" data-decision-focus-target="${escapeHtml(previousId)}" ${previousId?'':'disabled'}>← Previous</button><button type="button" class="link-btn" data-decision-focus-target="${escapeHtml(nextId)}" ${nextId?'':'disabled'}>Next →</button>${nextUndecidedId&&nextUndecidedId!==nextId?`<button type="button" class="link-btn" data-decision-focus-target="${escapeHtml(nextUndecidedId)}">Next undecided ↗</button>`:''}</span>`;
 }
+
 
 /* removed duplicate legacy definition: setWorkflowMode */
 /* removed duplicate legacy definition: updateWorkflowModeUI */
@@ -2930,7 +2920,7 @@ document.querySelectorAll('[data-start-intent]').forEach(btn=>btn.addEventListen
 document.getElementById('focusedStartCheck')?.addEventListener('change',e=>{state.preferredStartCheck=e.target.value||'review-items';state.startIntent='checks';document.querySelectorAll('[data-start-intent]').forEach(item=>item.classList.toggle('active',item.dataset.startIntent==='checks'));});
 els.readingModeBtn?.addEventListener('click',()=>toggleFocusMode());
 els.decisionFocusBtn?.addEventListener('click',()=>toggleDecisionFocus());
-els.decisionFocusBar?.addEventListener('click',e=>{const btn=e.target.closest('[data-decision-focus-target]');if(!btn||btn.disabled)return;const id=btn.dataset.decisionFocusTarget;if(id)jumpToClause(id);});
+els.decisionFocusBar?.addEventListener('click',event=>{const button=event.target.closest('[data-decision-focus-target]');if(!button||button.disabled)return;const id=button.dataset.decisionFocusTarget;if(id)jumpToClause(id);});
 els.printViewBtn?.addEventListener('click',()=>window.print());
 els.checksWorkspace?.addEventListener('click',e=>{
   const open=e.target.closest('[data-open-check]');if(open){state.activeCheck=open.dataset.openCheck||'';state.activeConcept='';state.activeTermFilter='';state.checkFilter='all';renderChecksWorkspace();saveSessionReturn();return;}
@@ -2940,7 +2930,7 @@ els.checksWorkspace?.addEventListener('click',e=>{
   const concept=e.target.closest('[data-concept-filter]');if(concept){state.activeConcept=state.activeConcept===concept.dataset.conceptFilter?'':concept.dataset.conceptFilter||'';renderChecksWorkspace();return;}
   const filter=e.target.closest('[data-check-filter]');if(filter){state.checkFilter=filter.dataset.checkFilter||'all';renderChecksWorkspace();return;}
   if(e.target.closest('[data-open-full-review]')){state.activeCheck='';setWorkflowStage('decide',{preserveTab:false});return;}
-  const source=e.target.closest('[data-check-source]');if(source){setWorkflowStage('decide',{preserveTab:true});jumpToClause(source.dataset.checkSource,{fromCheck:true});return;}
+  const source=e.target.closest('[data-check-source]');if(source){state.checkReturnScrollTop=els.checksWorkspace?.scrollTop||0;setWorkflowStage('decide',{preserveTab:true});jumpToClause(source.dataset.checkSource,{fromCheck:true});return;}
   const finding=e.target.closest('[data-finding-state]');if(finding){state.findingReview||={};const key=finding.dataset.findingKey;const next=finding.dataset.findingState;state.findingReview[key]=state.findingReview[key]===next?'':next;renderChecksWorkspace();scheduleAutosave({reason:'critical'});return;}
   const complete=e.target.closest('[data-complete-check]');if(complete){state.checkCompletion||={};const id=complete.dataset.completeCheck;if(state.checkCompletion[id])delete state.checkCompletion[id];else state.checkCompletion[id]=new Date().toISOString();renderChecksWorkspace();scheduleAutosave({reason:'critical'});return;}
   const exp=e.target.closest('[data-check-export]');if(exp){exportCurrentCheck(CHECK_DEFINITIONS.find(i=>i.id===exp.dataset.checkExport));return;}
@@ -2948,8 +2938,8 @@ els.checksWorkspace?.addEventListener('click',e=>{
   const resolve=e.target.closest('[data-resolve-placeholder]');if(resolve){togglePlaceholderResolved(resolve.dataset.resolvePlaceholder);renderChecksWorkspace();return;}
   const ignore=e.target.closest('.ignore-undefined-btn');if(ignore){ignoreUndefinedTerm(ignore.dataset.term);renderChecksWorkspace();return;}
   const copy=e.target.closest('.copy-term-btn');if(copy){copyTextToClipboard(formatTermDetail(copy.dataset.term),'Term copied');return;}
-  const termUse=e.target.closest('[data-term-use-clause]');if(termUse){setWorkflowStage('decide',{preserveTab:true});jumpToClause(termUse.dataset.termUseClause,{fromCheck:true});return;}
-  const playbook=e.target.closest('[data-check-playbook-guidance]');if(playbook){const cid=playbook.dataset.checkPlaybookGuidance;setWorkflowStage('decide',{preserveTab:true});jumpToClause(cid);openPlaybookGuidance(cid,playbook.dataset.moduleId||'');return;}
+  const termUse=e.target.closest('[data-term-use-clause]');if(termUse){state.checkReturnScrollTop=els.checksWorkspace?.scrollTop||0;setWorkflowStage('decide',{preserveTab:true});jumpToClause(termUse.dataset.termUseClause,{fromCheck:true});return;}
+  const playbook=e.target.closest('[data-check-playbook-guidance]');if(playbook){const cid=playbook.dataset.checkPlaybookGuidance;state.checkReturnScrollTop=els.checksWorkspace?.scrollTop||0;setWorkflowStage('decide',{preserveTab:true});jumpToClause(cid,{fromCheck:true});openPlaybookGuidance(cid,playbook.dataset.moduleId||'');return;}
 });
 els.contractTypeSelect?.addEventListener('change',e=>{state.contractType=resolveContractType(e.target.value||'Custom');if(state.clauses.length){state.contractType=resolveContractType(els.contractTypeSelect?.value||'Custom');
 if(state.contractType==='Custom'){
@@ -3325,7 +3315,7 @@ else if(t.id==='negotiationPositionSelect')setClausePosition(cid,t.value);
 else if(t.id==='reviewStatusSelect')setClauseReviewStatus(cid,t.value);
 else if(t.id==='counterpartyLastDiscussedInput')setClauseCounterpartyLastDiscussed(cid,t.value);
 else if(t.id==='negotiationStatusSelect')setClauseNegotiationStatus(cid,t.value);
-else if(t.closest('.inline-notes-thread form')){const form=t.closest('form');captureInlineNoteDraft(form,cid);if(t.name==='text')handleNoteSlashInput(form);} 
+else if(t.closest('.inline-notes-thread form')){const form=t.closest('form');captureInlineNoteDraft(form,cid);if(t.name==='text')handleNoteSlashInput(form);}
 if(['decisionRouteSelect','decisionPrioritySelect','decisionIncludePackCheckbox','decisionApprovalStatusSelect','decisionBlocksApprovalCheckbox'].includes(t.id)){
   if(t.id==='decisionRouteSelect') setClauseDecision(cid,{route:t.value});
   if(t.id==='decisionPrioritySelect') setClauseDecision(cid,{priority:t.value});
@@ -3377,7 +3367,7 @@ else if(t.id==='decisionExternalSummaryInput'){
 }
 else if(t.id==='fallback2Input')setClauseFallbackLadderValue(cid,'fallback2',t.value);
 else if(t.id==='walkAwayInput')setClauseFallbackLadderValue(cid,'walkAway',t.value);
-else if(t.closest('.inline-notes-thread form')){const form=t.closest('form');captureInlineNoteDraft(form,cid);if(t.name==='text')handleNoteSlashInput(form);} 
+else if(t.closest('.inline-notes-thread form')){const form=t.closest('form');captureInlineNoteDraft(form,cid);if(t.name==='text')handleNoteSlashInput(form);}
 if(['decisionRationaleInput','decisionOpeningAskInput','decisionFallbackInput','decisionRouteSelect','decisionPrioritySelect','decisionIncludePackCheckbox','decisionOwnerInput','decisionQuestionInput','decisionApprovalStatusSelect','decisionBlocksApprovalCheckbox','counterpartyPositionInput','counterpartyNextStepInput','decisionExternalSummaryInput'].includes(t.id) || t.closest('.inline-notes-thread form')){
   scheduleAutosave(DRAFTING_AUTOSAVE_DELAY);
 }
@@ -3665,7 +3655,7 @@ async function analyzeText(text,fileName,sourceType,extras={}){
     state.issues.subjectiveStandards=typeof ANALYSIS_CORE.detectSubjectiveStandards==='function'?ANALYSIS_CORE.detectSubjectiveStandards(state.clauses,state.rawText||''):[];
     state.issues.asymmetries=typeof ANALYSIS_CORE.detectAsymmetries==='function'?ANALYSIS_CORE.detectAsymmetries(state.clauses,state.rawText||'',state.legalPropositions):[];
     state.referenceLedger=buildReferenceLedger(state.clauses);
-    state.issues.crossReferenceBreaks=state.referenceLedger.filter(item=>item.status==='missing'||item.status==='ambiguous'||item.status==='malformed');
+    state.issues.crossReferenceBreaks=state.referenceLedger.filter(item=>['missing','ambiguous','malformed'].includes(item.status));
     state.issues.semanticCrossReferenceWarnings=state.referenceLedger.filter(item=>item.status==='semantic-mismatch');
     state.issues.consistency=detectConsistencyIssues(state.clauses,state.definedTerms);
     state.issues.survivalClauses=detectSurvivalClauses(state.clauses);
@@ -3723,13 +3713,13 @@ state.draftingOpenClauseIds={};state.clauseCompareMode={};state.positionHistory=
 state.resolvedPlaceholderIds=[];state.ignoredPlaceholderIds=[];state.reviewabilityOverrides={};state.clauseAudienceSharing={};state.verificationByKey={};state.selectedClauseId=null;state.searchQuery='';state.activeTermFilter='';state.executionMode=false;state.executedAt='';state.clauseTimeSpent={};state.clauseOpenedAt=null;state.analyzing=false;state._activeTimerClauseId=null;
 state.filters={content:'all',review:'all'};state.activeTab='summary';
 state.noteFormOpen=false;state.noteDraft=null;state.sessionRestored=false;state.snapshotNotice='';
-state.notesView='clause';state.termsView='all';state.refsView='all';state.focusMode=false;state.decisionFocus=false;
+state.notesView='clause';state.termsView='all';state.refsView='all';state.focusMode=false;state.decisionFocus=false;state.returnToCheckArmed=false;state.checkReturnScrollTop=0;
 state.startIntent='checks';state.preferredStartCheck='review-items';state.activeCheck='';state.activeConcept='';state.checkFilter='all';state.checkCompletion={};state.findingReview={};
 state.negotiationContextOpen={};state.dismissedDraftingNudges={};state.clauseBriefOpenIds={};
 pendingDecisionAutoAdvance.clear();
 state.prefs=state.prefs?{...state.prefs}:{xrefGlowMs:2200};state.mobileView='review';state.snapshotItems=[];state.autosaveFailed=false;
 state.sidePeekClauseId=null;state.reviewSubSection='issues';state.strategySubSection='packages';state.workflowMode='review';state.workflowStage='decide';state.queuePreset='needs-decision';state.currentRound=1;state.sessionReturn={};state.selectedSnapshotCompareId='';state.selectedRoundCompareKey='';state.compareOnlyMode=false;state.definitionPassDoneAt='';state.pendingRestoreMeta=null;state.diagnostics.recentActions=[];state.diagnostics.recentRenders=[];state.diagnostics.recentErrors=[];hidePeekCard();
-boilerplateScoresDirty=true;applyFocusMode();els.searchInput.value='';syncFilterUI();updateNavigatorModeUI();
+boilerplateScoresDirty=true;applyFocusMode();applyDecisionFocus();els.searchInput.value='';syncFilterUI();updateNavigatorModeUI();
 undoStack.length=0;redoStack.length=0;
 }
 
@@ -3752,10 +3742,6 @@ function splitNumberedClauseContent(parsed,line){
   const heading=conciseClauseHeading(content,parsed?.number||'');
   const strippedBody=normalizeDocxLine(line).replace(/^\s*(?:Schedule\s+[A-Z0-9]+|Annex(?:ure)?\s+[A-Z0-9]+|Exhibit\s+[A-Z0-9]+|Appendix\s+[A-Z0-9]+|(?:Article|Section|Clause)\s+[A-Z0-9.-]+|\d+(?:\.\d+)*(?:[a-z])?(?:\([a-z0-9ivx]+\))*|[A-Z]|[ivxlcdm]{1,8})[.):—–-]?\s*/i,'').trim();
   const isDuplicateOfHeading=strippedBody.replace(/[.;:]$/,'').trim().toLowerCase()===heading.trim().toLowerCase();
-  // Never drop the source text: a short clause whose full content collapses onto its own auto-heading
-  // still needs that text in `body` for every downstream detector (defined terms, obligations,
-  // cross-references) to see it. `isDuplicateOfHeading` tells the renderer not to print the heading and
-  // body twice; it must never mean "discard the body".
   return{heading,body:strippedBody,isDuplicateOfHeading};
 }
 function isAdministrativeLine(t){return /(signature of authorized representative|business office only|funding source|district contract|attn:|email:|phone number|print\s+title|contracts?@|accounts?-payable@)/i.test(t||'');}
@@ -3764,12 +3750,7 @@ const h=String(heading||'').trim();const n=String(number||'').trim();
 if(!h)return true;if(/^(schedule|annex|annexure|exhibit|appendix|article|section|clause)/i.test(n))return true;
 if(isAdministrativeLine(h))return false;
 const w=h.split(/\s+/).filter(Boolean);if(!w.length||w.length>10)return false;
-// Street-address words only disqualify a heading when the address IS the heading (e.g. a lone
-// "221B Baker Street, London" line, itself mis-parsed as clause number "221B") — i.e. the address word
-// shows up in the first few tokens. A genuine numbered clause like "16. Notices — Registered Office,
-// 221B Baker Street, London" states its heading first and only mentions the street name well into a
-// longer line; penalising that on the same textual grounds would make the "Notices" clause vanish.
-const addressWordIndex=w.findIndex(x=>/^(?:road|street|avenue|drive|lane|boulevard|blvd|court|way|building)$/i.test(x.replace(/[.,]$/,'')));
+const addressWordIndex=w.findIndex(word=>/^(?:road|street|avenue|drive|lane|boulevard|blvd|court|way|building)$/i.test(word.replace(/[.,]$/,'')));
 if(addressWordIndex>=0&&addressWordIndex<=2)return false;
 if(/,/.test(h)&&/(po box|suite|floor|sector|district contract|email|attn|phone)/i.test(h))return false;
 if(/^[A-Z]{3,80}$/.test(h)&&w.length>=2&&w.length<=6)return true;
@@ -3851,14 +3832,7 @@ return re;
 
 function extractDefinedTerms(clauses,tableRows=[]){
 const terms={};const duplicateDefinitions=[];const possibleTerms=[];const tableDefinitions=[];
-const addTerm=(p)=>{const k=p.term.trim();if(!k)return;if((state.customStopLists?.definedTerms||DEFAULT_STOP_LISTS.definedTerms).includes(k))return;if(terms[k]){const ex=terms[k];if(p.carveOuts?.length)ex.carveOuts=[...new Set([...(ex.carveOuts||[]),...p.carveOuts])];const normalizeDefinition=v=>String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();const exDef=normalizeDefinition(ex.definition);const pDef=normalizeDefinition(p.definition);const identical=exDef===pDef;
-      // Different regex patterns can capture overlapping spans of the SAME definition (one anchored before a
-      // parenthetical numeral, one after) — e.g. "continues for an initial term of three (3) years" vs "years".
-      // Treat a same-clause candidate whose definition text is wholly contained in the other's as the same
-      // definition, not a genuine conflict; only flag when neither contains the other.
-      const overlapping=!identical&&exDef&&pDef&&(exDef.includes(pDef)||pDef.includes(exDef));
-      const sameSource=String(ex.definedInClauseId||'')===String(p.definedInClauseId||'')&&(identical||overlapping);
-      if(!sameSource&&!(ex.scope==='local'&&p.scope==='global')&&!(ex.scope==='global'&&p.scope==='local')){duplicateDefinitions.push({term:k,firstClauseId:ex.definedInClauseId,secondClauseId:p.definedInClauseId,kind:identical?'identical':'conflicting',firstDefinition:ex.definition||'',secondDefinition:p.definition||''});}if(p.confidenceRank>ex.confidenceRank)terms[k]=p;return;}terms[k]=p;};
+const addTerm=(p)=>{const k=p.term.trim();if(!k)return;if((state.customStopLists?.definedTerms||DEFAULT_STOP_LISTS.definedTerms).includes(k))return;if(terms[k]){const ex=terms[k];if(p.carveOuts?.length)ex.carveOuts=[...new Set([...(ex.carveOuts||[]),...p.carveOuts])];const normalizeDefinition=v=>String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();const sameSource=String(ex.definedInClauseId||'')===String(p.definedInClauseId||'')&&normalizeDefinition(ex.definition)===normalizeDefinition(p.definition);if(!sameSource&&!(ex.scope==='local'&&p.scope==='global')&&!(ex.scope==='global'&&p.scope==='local')){const identical=normalizeDefinition(ex.definition)===normalizeDefinition(p.definition);duplicateDefinitions.push({term:k,firstClauseId:ex.definedInClauseId,secondClauseId:p.definedInClauseId,kind:identical?'identical':'conflicting',firstDefinition:ex.definition||'',secondDefinition:p.definition||''});}if(p.confidenceRank>ex.confidenceRank)terms[k]=p;return;}terms[k]=p;};
 clauses.forEach(originalClause=>{
 if(isClauseAfterExecutionBoundary(originalClause))return;const clause={...originalClause,body:truncateAtExecutionBoundary(originalClause.body)};if(!clause.body.trim())return;
 const sentences=splitIntoSentences(clause.body);const hb=/definition|interpretation|schedule|annex|appendix/i.test(clause.heading)?1:0;
@@ -3874,10 +3848,10 @@ const formalPatterns=[
 if(hb){formalPatterns.push({regex:/^([A-Z][A-Za-z0-9&/ -]{1,80})\s*:\s*([^\n]{8,240})$/gim,type:'formal',confidence:'medium',rank:2,rule:'colon_definition'});formalPatterns.push({regex:/([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s*:?\s*(?:shall\s+mean|means)\s+([^.;\n]+(?:[.;\n][^\n]*)?)/g,type:'definitions-style',confidence:'medium',rank:2,rule:'multiword_term_means'});}
 if(!hb){let c;const cr=/\b([A-Z][A-Za-z][A-Za-z0-9&/-]{1,60})\s*:?\s*(?:shall\s+mean|means)\s+([^.;\n]+(?:[.;\n][^\n]*)?)/g;while((c=cr.exec(clause.body))!==null){const t=normalizeTerm(c[1]);if(!t||isBadDefinitionTerm(t))continue;possibleTerms.push({term:t,definition:c[2].trim(),contextSentence:sentences.find(s=>s.includes(c[0]))||c[0],clauseId:clause.id,clauseLabel:clause.number,confidence:'low',reason:'Unquoted term + means outside definitions clause.',detectionRule:'possible_capitalized_term_means'});}}
 formalPatterns.forEach(({regex,type,confidence,rank,rule})=>{let m;while((m=regex.exec(clause.body))!==null){let t=normalizeTerm(m[1]);if(!t||isBadDefinitionTerm(t,'',true))continue;const cs=sentences.find(s=>s.includes(m[0]))||m[0];const def=m[2].trim();addTerm({term:t,normalized:t,definition:type==='negative-definition'?'':(type==='cross_reference'?`See ${def}`:def),carveOuts:type==='negative-definition'?[def]:[],reference:type==='cross_reference'?def:'',contextSentence:cs,definitionType:type,confidence,confidenceRank:rank+hb,detectionRule:rule,definedInClauseId:clause.id,usedInClauseIds:[],scope});}});
-let m;const ir=/([^\n\r()]{1,180}?)\s*\(\s*(?:(?:altogether|collectively|jointly|together)\s+)?(?:called\s+|referred\s+to\s+as\s+|known\s+as\s+)?(?:the\s+)?["“”'‘’]([A-Z][A-Za-z0-9&/ -]{1,80})["“”'‘’]\s*\)/gi;
-while((m=ir.exec(clause.body))!==null){let t=normalizeTerm(m[2]);if(/^the\s+/i.test(t))t=t.replace(/^the\s+/i,'');if(!t||isBadDefinitionTerm(t,'',true)||/\b(?:console|function|javascript|script|alert|onerror)\b/i.test(m[1]))continue;const cs=sentences.find(s=>s.includes(m[0]))||m[0];const parenInSentence=cs.match(new RegExp(`\\(\\s*(?:the\\s+)?["“”'‘’]${escapeRegExp(m[2])}["“”'‘’]\\s*\\)`,'i'));const precedingInSentence=parenInSentence?cs.slice(0,parenInSentence.index):m[1];const c=cleanInlineCandidate((precedingInSentence||m[1]).trim())||cleanInlineCandidate(m[1].trim());addTerm({term:t,normalized:t,definition:c,candidateDefinition:c,contextSentence:cs,definitionType:'inline',confidence:'medium',confidenceRank:2+hb,detectionRule:'inline_parenthetical_term',definedInClauseId:clause.id,usedInClauseIds:[],scope});}
+let m;const ir=/([^\n\r()]{2,180}?)\s*\(\s*(?:the\s+)?["“”'‘’]([A-Z][A-Za-z0-9&/ -]{1,80})["“”'‘’]\s*\)/gi;
+while((m=ir.exec(clause.body))!==null){let t=normalizeTerm(m[2]);if(/^the\s+/i.test(t))t=t.replace(/^the\s+/i,'');if(!t||isBadDefinitionTerm(t,'',true)||/\b(?:console|function|javascript|script|alert|onerror)\b/i.test(m[1]))continue;const c=cleanInlineCandidate(m[1].trim());const cs=sentences.find(s=>s.includes(m[0]))||m[0];addTerm({term:t,normalized:t,definition:c,candidateDefinition:c,contextSentence:cs,definitionType:'inline',confidence:'medium',confidenceRank:2+hb,detectionRule:'inline_parenthetical_term',definedInClauseId:clause.id,usedInClauseIds:[],scope});}
 const dir=/([^\n\r()]{2,180}?)\s*\(\s*(?:each\s*,?\s*)?(?:a|an|the)?\s*["“”'‘’]([A-Z][A-Za-z0-9&/ -]{1,80})["“”'‘’](?:\s*,?\s*(?:and|or)\s*["“”'‘’]([A-Z][A-Za-z0-9&/ -]{1,80})["“”'‘’])?\s*\)/gi;
-while((m=dir.exec(clause.body))!==null){const phrase=cleanInlineCandidate(m[1]);[m[2],m[3]].filter(Boolean).forEach(rawTerm=>{const t=normalizeTerm(rawTerm);if(!t||isBadDefinitionTerm(t,phrase,true))return;addTerm({term:t,normalized:t,definition:phrase,candidateDefinition:phrase,contextSentence:sentences.find(s=>s.includes(m[0]))||m[0],definitionType:'inline',confidence:'medium',confidenceRank:2+hb,detectionRule:'inline_each_or_dual_term',definedInClauseId:clause.id,usedInClauseIds:[],scope});});}
+while((m=dir.exec(clause.body))!==null){const phrase=cleanInlineCandidate(m[1]);[m[2],m[3]].filter(Boolean).forEach(rawTerm=>{const t=normalizeTerm(rawTerm);if(!t||isBadDefinitionTerm(t,phrase))return;addTerm({term:t,normalized:t,definition:phrase,candidateDefinition:phrase,contextSentence:sentences.find(s=>s.includes(m[0]))||m[0],definitionType:'inline',confidence:'medium',confidenceRank:2+hb,detectionRule:'inline_each_or_dual_term',definedInClauseId:clause.id,usedInClauseIds:[],scope});});}
 const rr=/((?:referred\s+to\s+in\s+this\s+Agreement\s+as|referred\s+to\s+as)\s+(?:the\s+)?["“”'‘’]([A-Z][A-Za-z0-9&/ -]{1,80})["“”'‘’])/gi;
 while((m=rr.exec(clause.body))!==null){const t=normalizeTerm(m[2]);if(!t||isBadDefinitionTerm(t,'',true))continue;const cs=sentences.find(s=>s.includes(m[0]))||m[0];const before=clause.body.slice(0,m.index);const phrase=cleanInlineCandidate(before.slice(Math.max(0,before.length-220)));addTerm({term:t,normalized:t,definition:phrase,candidateDefinition:phrase,contextSentence:cs,definitionType:'inline',confidence:'medium',confidenceRank:2+hb,detectionRule:'referred_to_as_term',definedInClauseId:clause.id,usedInClauseIds:[],scope});}
 const hr=/\bhereinafter\s*(?:(?:collectively\s+|jointly\s+)?referred\s+to\s+as)?\s*:?\s*(?:the\s+)?["“”'‘’]([A-Z][A-Za-z0-9&/ -]{1,80})["“”'‘’]/gi;
@@ -3956,12 +3930,7 @@ function buildReferenceIndex(clauses){
   numericTopLevels.forEach((items,number)=>{if(items.length!==1)return;['Article','Section','Clause'].forEach(kind=>index.set(normalizeReferenceLabel(`${kind} ${number}`),items[0]));});
   return index;
 }
-function findClauseByReference(ref,clauses,excludeId){const list=clauses||state.clauses||[];const t=normalizeReferenceLabel(ref);const indexed=buildReferenceIndex(list).get(t);if(Array.isArray(indexed))return null;if(indexed)return indexed;
-  // Fallback: a reference token appearing inside a clause's own heading/number is only real evidence when
-  // that heading was authored, not when it is an auto-derived echo of the clause's own body text (see
-  // headingDerivedFromBody) — otherwise a clause referencing a section number that was never drafted can
-  // "resolve" to itself, because its own truncated heading happens to contain the reference token.
-  return list.find(c=>c.id!==excludeId&&!c.headingDerivedFromBody&&normalizeReferenceLabel(`${c.number||''} ${c.heading||''}`).includes(t));}
+function findClauseByReference(ref,clauses){const list=clauses||state.clauses||[];const t=normalizeReferenceLabel(ref);const indexed=buildReferenceIndex(list).get(t);if(Array.isArray(indexed))return null;return indexed||list.find(c=>normalizeReferenceLabel(`${c.number||''} ${c.heading||''}`).includes(t));}
 
 
 function extractReferenceCandidates(text){
@@ -3981,12 +3950,12 @@ return out.sort((a,b)=>a.start-b.start||a.end-b.end);
 function normalizeReferenceToken(token){
 return normalizeReferenceLabel(String(token||'').replace(/\bSched\.?\b/ig,'Schedule').replace(/\bSch\.?\b/ig,'Schedule').trim());
 }
-function resolveReferenceTarget(token, clauses, excludeId){
-return findClauseByReference(token, clauses||state.clauses||[], excludeId) || null;
+function resolveReferenceTarget(token, clauses){
+return findClauseByReference(token, clauses||state.clauses||[]) || null;
 }
 
 function detectCrossReferenceBreaks(clauses){
-return buildReferenceLedger(clauses).filter(item=>item.status==='missing'||item.status==='ambiguous');
+return buildReferenceLedger(clauses).filter(item=>['missing','ambiguous','malformed'].includes(item.status));
 }
 
 const REFERENCE_SEMANTIC_TOPICS=[
@@ -4022,7 +3991,7 @@ function buildReferenceLedger(clauses){
       const norm=normalizeReferenceToken(reference);const indexed=referenceIndex.get(norm);const context=referenceContextSentence(body,reference);let target=null;let status='missing';let candidates=[];
       if(Array.isArray(indexed)){status='ambiguous';candidates=indexed.map(item=>item.id);}
       else if(indexed){status='valid';target=indexed;}
-      else {target=resolveReferenceTarget(reference,list,clause.id);if(target)status='valid';}
+      else {target=resolveReferenceTarget(reference,list);if(target)status='valid';}
       const sourceTopic=referenceSemanticTopic(context);
       if(status==='valid'&&target&&sourceTopic&&/\b(?:under|pursuant to|in accordance with|subject to|as set out in|specified in)\b/i.test(context)){
         const targetTopic=referenceSemanticTopic(`${target.heading||''} ${target.body||''}`);
@@ -4070,10 +4039,10 @@ logReviewAction('xref-definition-resolved',tc.id,{summary:`${term} from ${refere
 /* -- Issue detection -- */
 function detectUndefinedCapitalizedTerms(clauses,terms){
 const defined=new Set(Object.keys(terms));const principalTokens=typeof ANALYSIS_CORE.detectPrincipalParties==='function'?ANALYSIS_CORE.detectPrincipalParties(state.rawText||'').flatMap(p=>[p.alias,p.name]).filter(Boolean):[];const party=new Set([...Object.values(terms).filter(t=>t.definitionType==='party').map(t=>t.term),...principalTokens]);
-const stop=new Set([...(state.customStopLists?.undefinedTerms||DEFAULT_STOP_LISTS.undefinedTerms),'Agreement','Clause','Section','Schedule','Annexure','Annex','Exhibit','Appendix','Article','Party','Parties','Client','Supplier','Vendor','District','State','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday','January','February','March','April','May','June','July','August','September','October','November','December']);
+const stop=new Set([...(state.customStopLists?.undefinedTerms||DEFAULT_STOP_LISTS.undefinedTerms),'Agreement','Clause','Section','Schedule','Annexure','Annex','Exhibit','Appendix','Article','Party','Parties','Client','Supplier','Vendor','Neither','Notices','District','State','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday','January','February','March','April','May','June','July','August','September','October','November','December']);
 const counts={};const clauseHits={};const contexts={};
 const CAPWORD='[A-Z][A-Za-z]+(?:-[A-Z][A-Za-z]+)*';const capPhraseRe=new RegExp(`\\b(${CAPWORD}(?:\\s+(?:of|and|for|the)\\s+${CAPWORD}|\\s+${CAPWORD}){0,3})\\b`,'g');
-const SENTENCE_INITIAL_STOPWORDS=/^(?:The|This|That|Any|Each|Either|For|If|In|On|At|From|To|Not|No|Unless|Where|While|Although|Additional|Fails?|With|Without|Notwithstanding|Provided|Subject|Prior|After|Before|During|Following|Pursuant|Except|Should|When|Whereas|Furthermore|However|Moreover|Nonetheless|Nevertheless|Both|All|Such|Upon)$/;
+const SENTENCE_INITIAL_STOPWORDS=/^(?:The|This|That|Any|Each|Either|Neither|For|If|In|On|At|From|To|Not|No|Unless|Where|While|Although|Additional|Fails?|With|Without|Notwithstanding|Provided|Subject|Prior|After|Before|During|Following|Pursuant|Except|Should|When|Whereas|Furthermore|However|Moreover|Nonetheless|Nevertheless|Both|All|Such|Upon)$/;
 clauses.forEach(c=>{if(isAdministrativeLine(`${c.number} ${c.heading}`)||isClauseAfterExecutionBoundary(c))return;const seen=new Set();splitIntoSentences(truncateAtExecutionBoundary(c.body)).forEach(s=>{if(/^[A-Z\s]{6,}$/.test(s.trim()))return;[...s.matchAll(capPhraseRe)].forEach(match=>{let n=match[1].trim();const isStructuralStart=match.index===0||/\([a-z0-9ivx]+\)\s*$/i.test(s.slice(0,match.index));if(isStructuralStart){const words=n.split(/\s+/);if(SENTENCE_INITIAL_STOPWORDS.test(words[0])){words.shift();n=words.join(' ');}if(!n)return;}if(defined.has(n)||stop.has(n)||party.has(n))return;const joinedParts=n.split(/\s+(?:of|and|for|the)\s+/i);if(joinedParts.length>1&&joinedParts.every(w=>defined.has(w)||stop.has(w)||party.has(w)))return;if(/^(?:The|This|That|Any|Each|Either|For|If|In|On|At|From|To|Not|No)(?:\s|$)/.test(n))return;if(/\b(?:Agreement|Party|Parties)$/.test(n))return;if(n.length<4)return;if(/^(Page|Date|Name|Phone|E-?mail|Email|Road|Street|California|Eureka|For InnoStars)$/i.test(n))return;counts[n]=(counts[n]||0)+1;seen.add(n);contexts[n]||=[];contexts[n].push({clauseId:c.id,sentence:s,heading:c.heading||''});});});seen.forEach(t=>{clauseHits[t]||=new Set();clauseHits[t].add(c.id);});});
 const minCount=Math.max(3,Math.ceil((clauses.length||1)/12));
 return Object.entries(counts).map(([term,count])=>{const assessment=REVIEW_CORE.scoreDefinedTermCandidate(term,contexts[term]||[],{clauseCount:clauses.length,frequency:count,spread:clauseHits[term]?.size||0});return{term,count,clauseCount:clauseHits[term]?.size||0,assessment};}).filter(item=>!state.ignoredUndefinedTerms.includes(item.term)).filter(item=>item.assessment.structural||(item.count>=minCount&&item.clauseCount>=3)).sort((a,b)=>Number(b.assessment.structural)-Number(a.assessment.structural)||b.assessment.score-a.assessment.score||b.count-a.count).slice(0,36).map(item=>({term:item.term,count:item.count,clauseCount:item.clauseCount,lane:item.assessment.structural?'structural':'frequency',confidence:item.assessment.score>=6?'High':'Moderate',structuralReasons:item.assessment.reasons||[],contexts:(contexts[item.term]||[]).slice(0,3)}));
@@ -4161,7 +4130,7 @@ else{
  if(/\b(?:Name|Title|Signature|Date)\s*:\s*(?:\[[^\]]+\]|_{3,}|●|\s*(?:\n|$))/i.test(executionText))add('signature','Incomplete signature details','At least one Name, Title, Signature or Date field appears blank.');
 }
 const undated=(state.placeholders||[]).filter(p=>!p.resolved&&!p.ignored&&/date|effective|start|commencement/i.test(p.text||''));
-if(!undated.length&&/\b(?:effective|commencement|start) date\b/i.test(state.rawText||'')&&!/\b(?:effective|commencement|start) date\b[^.\n]{0,80}(?:\d{4}-\d{2}-\d{2}|\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}|[A-Z][a-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+,?\s+\d{4})/i.test(state.rawText||''))add('date','Effective/start date requires verification','A date concept was found but no explicit calendar date was confidently extracted.','','verify');
+if(!undated.length&&/\b(?:effective|commencement|start) date\b/i.test(state.rawText||'')&&!/\b(?:effective|commencement|start) date\b[^.\n]{0,80}(?:\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}|[A-Z][a-z]+\s+\d{1,2},?\s+\d{4})/i.test(state.rawText||''))add('date','Effective/start date requires verification','A date concept was found but no explicit calendar date was confidently extracted.','','verify');
 return{items,status:items.some(i=>i.severity==='blocker')?'not-ready':items.length?'verify':'ready',generatedAt:new Date().toISOString()};
 }
 function renderExecutionCheckCard({compact=false}={}){const check=buildExecutionCheck();state.executionCheck=check;const open=check.items;return `<section class="tool-card guided-card execution-check-card ${check.status==='ready'?'low':check.status==='not-ready'?'high':'warn'}"><div class="guided-card-head"><div><div class="mini-label">Pre-signature execution check</div><h3>${check.status==='ready'?'No execution blockers detected':`${open.length} item${open.length===1?'':'s'} before signature`}</h3></div><span class="clause-pill">${escapeHtml(check.status==='ready'?'Ready to verify':check.status==='not-ready'?'Not ready':'Verify')}</span></div>${open.length?`<div class="summary-list">${open.slice(0,compact?4:12).map(i=>`<button type="button" class="summary-item ${i.clauseId?'jump-clause':''}" ${i.clauseId?`data-clause-id="${escapeHtml(i.clauseId)}"`:''}><span><strong>${escapeHtml(i.label)}</strong><small>${escapeHtml(i.detail)}</small></span><span class="summary-meta">${escapeHtml(i.severity==='blocker'?'Fix':'Verify')}</span></button>`).join('')}</div>`:'<p class="mini">No unresolved blanks, missing referenced attachments, incomplete signature fields or undated start provisions were detected. Verify the final Word document before signing.</p>'}<p class="mini">This is a deterministic preflight, not confirmation that the agreement is legally ready to execute.</p></section>`;}
@@ -4241,7 +4210,7 @@ function extractCommercialTermsSummary(){
   const standardParties=text.slice(0,2500).replace(/\s+/g,' ').match(/between\s+(.{2,280}?)\s+\(["“]([^"”]{1,40})["”]\)\s*,?\s+and\s+(.{2,280}?)\s+\(["“]([^"”]{1,40})["”]\)/i);
   const parties=uniqueParties.length>=2?uniqueParties.slice(0,8).map(p=>`${p.name} (${p.alias})`).join(' / '):standardParties?`${clean(standardParties[1])} (${clean(standardParties[2])}) / ${clean(standardParties[3])} (${clean(standardParties[4])})`:'Not detected';
   return {
-    effectiveDate: pick(/(?:effective date|effective as of|dated as of|made on)\s*(?:is|of|:)?\s*([A-Z][a-z]+\s+\d{1,2},\s*\d{4}|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\[[^\]]+\])/i, m=>m[1].replace(/\s+/g,' ').trim()),
+    effectiveDate: pick(/(?:effective date|effective as of|dated as of|made on)\s*(?:is|of|:)?\s*(\d{4}-\d{2}-\d{2}|[A-Z][a-z]+\s+\d{1,2},\s*\d{4}|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\[[^\]]+\])/i, m=>m[1].replace(/\s+/g,' ').trim()),
     initialTerm: pick(/(initial term[^.\n]{0,80}?\b\d+\s+(?:months?|years?)|continue for an initial term of[^.\n]{0,80})/i, m=>m[1].replace(/\s+/g,' ').trim()),
     renewal: pick(/(auto(?:matic)? renewal[^.\n]{0,80}|renew(?:al)? term[^.\n]{0,80}|renews? automatically[^.\n]{0,80}|mutual written agreement[^.\n]{0,40}renew)/i, m=>m[1].replace(/\s+/g,' ').trim()),
     terminationNotice: pick(/((?:terminate|termination)[^.\n]{0,80}?\b\d+\s+days?'?\s+(?:written\s+)?notice|\b\d+\s+days?'?\s+(?:written\s+)?notice[^.\n]{0,60}terminate)/i, m=>m[1].replace(/\s+/g,' ').trim()),
@@ -4706,7 +4675,7 @@ const CHECK_GROUPS=[
   {id:'structured',title:'Structured fact checks',description:'Actor, action and timing evidence assembled from operative sentences. Confirm before execution tracking.'},
   {id:'judgment',title:'Legal review prompts',description:'Issue routing and legal-effect heuristics. These accelerate review but are not legal conclusions.'}
 ];
-const LEGAL_CONCEPT_LABELS={acceptance:'Acceptance',changeControl:'Change control',indemnity:'Indemnities',liabilityCap:'Liability cap',disputeResolution:'Dispute resolution',termination:'Termination',assignment:'Assignment',setOff:'Set-off',dataProtection:'Data protection',intellectualProperty:'Intellectual property',serviceLevels:'Service levels',confidentiality:'Confidentiality',fees:'Fees and payment',audit:'Audit rights',governingLaw:'Governing law'};
+const LEGAL_CONCEPT_LABELS={acceptance:'Acceptance',changeControl:'Change control',indemnity:'Indemnities',liabilityCap:'Liability cap',disputeResolution:'Dispute resolution',governingLaw:'Governing law',termination:'Termination',assignment:'Assignment',setOff:'Set-off',dataProtection:'Data protection',intellectualProperty:'Intellectual property',serviceLevels:'Service levels',confidentiality:'Confidentiality',fees:'Fees and payment',audit:'Audit rights'};
 const SOURCE_LIMITATION_PATTERN=/not included in clause analysis|extraction integrity concern|very little text|numbering definitions not found|fingerprint unavailable|text boxes detected|embedded or externally linked word content|content controls detected|tracked (?:changes|revisions|deletions)|footnotes?|endnotes?|omitted word (?:part|content)/i;
 function buildCanonicalReviewItems(){
   const items=[];const byFact=new Map();const add=(checkId,key,data={})=>{const factKey=data.factKey||`${checkId}:${key}`;const existing=byFact.get(factKey);if(existing){existing.signals.push({checkId,key,title:data.title||''});existing.checkIds=[...new Set([...(existing.checkIds||[]),checkId])];existing.signalCount=existing.signals.length;if(({high:3,medium:2,low:1}[data.severity||'medium']||2)>({high:3,medium:2,low:1}[existing.severity]||2))existing.severity=data.severity;return existing;}const id=`fact:${factKey}`;const legacyId=`${checkId}:${key}`;const disposition=state.findingReview?.[id]||state.findingReview?.[legacyId]||'';const item={id,factKey,checkId,checkIds:[checkId],key,disposition,severity:data.severity||'medium',confidence:data.confidence||'Moderate',evidenceState:data.evidenceState||'detected',title:data.title||'Review item',detail:data.detail||'Verify against the source document.',clauseId:data.clauseId||'',meta:data.meta||'',cannotVerify:data.cannotVerify||'',lawyerQuestion:data.lawyerQuestion||'',targetClauseId:data.targetClauseId||'',signals:[{checkId,key,title:data.title||''}],signalCount:1};items.push(item);byFact.set(factKey,item);return item;};
@@ -4844,7 +4813,7 @@ function renderResolveWorkspace(){
   els.resolveWorkspace.innerHTML=`<div class="resolve-home"><header class="resolve-hero"><div><span class="eyebrow">Resolve</span><h1>Open work, grouped by the decision needed</h1><p>This canvas shows only unresolved human dependencies. It does not repeat the clause review.</p></div><div class="resolve-summary"><strong>${total}</strong><span>open item${total===1?'':'s'}</span></div></header><div class="resolve-list">${groups.map(([title,items,description])=>`<section class="resolve-group"><div class="resolve-group-head"><div><h2>${title}</h2><p>${description}</p></div><span>${items.length}</span></div>${items.length?items.map(c=>{const d=getClauseDecision(c.id);return`<details class="resolve-row"><summary><span><strong>${escapeHtml(c.number||c.heading||'Clause')}</strong><small>${escapeHtml(c.heading||c.type||'Contract provision')}</small></span><span>${escapeHtml(d.type?mapDecisionTypeToLegacyPosition(d.type):'Not decided')}</span></summary><div class="resolve-row-body"><p>${escapeHtml(truncateWords(c.body||'',34))}</p><div class="resolve-actions"><button type="button" class="btn btn-sm" data-resolve-open="${escapeHtml(c.id)}">Open clause</button></div></div></details>`;}).join(''):`<div class="resolve-empty">No open ${title.toLowerCase()}.</div>`}</section>`).join('')}</div><footer class="resolve-footer"><button type="button" class="btn" data-stage-jump="decide">Return to review</button><button type="button" class="btn btn-primary" data-stage-jump="close">Prepare outputs</button></footer></div>`;
 }
 function applyChecksWorkspace(){const stage=getActiveWorkflowStage(),checks=stage==='intake',resolve=stage==='prepare';els.checksWorkspace?.classList.toggle('hidden',!checks);els.resolveWorkspace?.classList.toggle('hidden',!resolve);els.workspace?.classList.toggle('hidden',checks||resolve);els.cockpitStrip?.classList.toggle('checks-hidden',checks||resolve);els.cockpitSummaryBar?.classList.toggle('checks-hidden',checks||resolve);if(checks)renderChecksWorkspace();if(resolve)renderResolveWorkspace();}
-function renderAll(){if(rerenderFrame) flushScheduledRerender();applyTheme();applyWorkflowMode();applyChecksWorkspace();applyFocusMode();updateNavigatorModeUI();normalizeReviewData();scheduleRerender({header:true,cockpit:true,navigator:true,clause:true,rightPanel:true,restore:true},'render-all');requestAnimationFrame(()=>{renderCompatibilityBanner();renderMinimapRail();updateMobileUI();});}
+function renderAll(){if(rerenderFrame) flushScheduledRerender();applyTheme();applyWorkflowMode();applyChecksWorkspace();applyFocusMode();applyDecisionFocus();updateNavigatorModeUI();normalizeReviewData();scheduleRerender({header:true,cockpit:true,navigator:true,clause:true,rightPanel:true,restore:true},'render-all');requestAnimationFrame(()=>{renderCompatibilityBanner();renderMinimapRail();updateMobileUI();});}
 function renderAfterClauseChange(){renderHeader();renderClauseList();renderClauseView();renderActiveRightPanel();renderMinimapRail();}
 function renderAfterContentChange(){normalizeReviewData();calculateAllRiskScores();renderTargeted({header:true,cockpit:true,navigator:true,rightPanel:true,clause:state.selectedClauseId===OVERVIEW_ID});renderMinimapRail();}
 function showApp(){els.landing.classList.add('hidden');els.app.classList.remove('hidden');applyWorkflowMode();updateCockpitCollapseUI();updateMobileUI();}
@@ -4856,6 +4825,7 @@ function closeAllModals(){
 function showLanding(force=false){
 flushClauseTime();
 if(!force && state.clauses.length && !window.confirm('Return to the landing page? A recovery copy will be saved before another document replaces this review.')) return;
+state.focusMode=false;state.decisionFocus=false;applyFocusMode();applyDecisionFocus();
 els.app?.classList.add('hidden');
 els.landing?.classList.remove('hidden');
 closeAllModals();
@@ -5073,10 +5043,9 @@ function renderOverviewReviewQueue(){
 
 function renderGuidedOverview(){
   const reviewable=getReviewableClauses();
-  const decisionRequired=getDecisionRequiredClauses();
-  const decided=decisionRequired.filter(c=>!!getClauseDecision(c.id).type).length;
+  const decided=reviewable.filter(c=>!!getClauseDecision(c.id).type).length;
   const riskRank={High:3,Medium:2,Low:1};
-  const priorities=decisionRequired.filter(c=>!getClauseDecision(c.id).type).sort((a,b)=>(riskRank[state.clauseRiskScores?.[b.id]||'Low']-riskRank[state.clauseRiskScores?.[a.id]||'Low'])||(riskRank[state.reviewPriorityScores?.[b.id]||'Low']-riskRank[state.reviewPriorityScores?.[a.id]||'Low'])).slice(0,3);
+  const priorities=reviewable.filter(c=>!getClauseDecision(c.id).type).sort((a,b)=>(riskRank[state.clauseRiskScores?.[b.id]||'Low']-riskRank[state.clauseRiskScores?.[a.id]||'Low'])||(riskRank[state.reviewPriorityScores?.[b.id]||'Low']-riskRank[state.reviewPriorityScores?.[a.id]||'Low'])).slice(0,3);
   const terms=extractCommercialTermsSummary();
   const termRows=[['Parties',terms.parties],['Effective date',terms.effectiveDate],['Payment',terms.paymentTerms],['Liability cap',terms.liabilityCap],['Governing law',terms.governingLaw]];
   const unresolved=(state.placeholders||[]).filter(p=>!p.resolved).length;
@@ -5089,7 +5058,7 @@ function renderGuidedOverview(){
   const sourceConfirmed=!hasUnconfirmedDegradedSource();
   return `<div class="guided-overview">
     <section class="guided-hero"><div><div class="clause-kicker">Analyze</div><h1 class="clause-heading">Contract snapshot</h1><p class="mini">Confirm the facts and signals below, then work through the substantive-clause queue.</p></div><button id="startGuidedReviewBtn" class="btn btn-primary" type="button">${decided?'Continue review':'Start review'} →</button></section>
-    <div class="guided-summary-grid"><div class="guided-summary-card"><span>Reviewable clauses</span><strong>${reviewable.length}</strong></div><div class="guided-summary-card"><span>Decisions</span><strong>${decided}/${decisionRequired.length}</strong></div><div class="guided-summary-card"><span>Structural signals</span><strong>${unresolved+broken+missing}</strong></div></div>
+    <div class="guided-summary-grid"><div class="guided-summary-card"><span>Reviewable clauses</span><strong>${reviewable.length}</strong></div><div class="guided-summary-card"><span>Decisions</span><strong>${decided}/${reviewable.length}</strong></div><div class="guided-summary-card"><span>Structural signals</span><strong>${unresolved+broken+missing}</strong></div></div>
     ${renderOverviewReviewQueue()}
     <section class="tool-card guided-card source-integrity-card ${degradedSource?'source-integrity-degraded':''}"><div class="guided-card-head"><div><div class="mini-label">Source trust</div><h3>Was the document imported completely?</h3></div><span class="clause-pill ${degradedSource&&!sourceConfirmed?'status-pill-high':'status-pill-low'}">${degradedSource?(sourceConfirmed?'Source assurance recorded':'Output blocked pending verification'):'Source coverage strong'}</span></div><div class="guided-term-list"><div class="guided-term-row"><span>Source</span><strong>${escapeHtml(String(state.documentMeta?.sourceType||'text').toUpperCase())}</strong></div><div class="guided-term-row"><span>Clauses found</span><strong>${state.clauses.length}</strong></div>${state.documentMeta?.sourceType==='docx'?`<div class="guided-term-row"><span>Paragraphs / table rows</span><strong>${Number(extraction.paragraphs||0)} / ${Number(extraction.tableRows||0)}</strong></div><div class="guided-term-row"><span>Recovered Word numbering</span><strong>${Number(extraction.directNumbered||0)} direct · ${Number(extraction.styleNumbered||0)} style-inherited</strong></div><div class="guided-term-row"><span>Strong clause boundaries represented</span><strong>${Number(state.documentMeta?.sourceIntegrity?.representedStrongBoundaries||0)} / ${Number(state.documentMeta?.sourceIntegrity?.strongBoundaryCandidates||0)}</strong></div><div class="guided-term-row"><span>Nested numbered items retained in parent clauses</span><strong>${Number(state.documentMeta?.sourceIntegrity?.nestedNumberedItems||0)}</strong></div>`:''}<div class="guided-term-row"><span>Source fingerprint</span><strong class="source-fingerprint">${escapeHtml(state.documentMeta?.sourceFingerprint||'Unavailable in this browser')}</strong></div></div>${sourceWarnings.length?`<ul class="health-breakdown mini">${sourceWarnings.map(w=>`<li>${escapeHtml(w)}</li>`).join('')}</ul>`:'<p class="mini">Confirm the clause count and first/last source blocks before relying on analysis.</p>'}${degradedSource?`<div class="source-integrity-action"><p class="mini"><strong>Review the original Word file.</strong> Check every listed limitation. Either add any material omitted text to this review or record the exact no-material-omission assurance.</p><button type="button" class="btn ${sourceConfirmed?'btn-secondary':'btn-primary'}" data-source-integrity-confirm>${sourceConfirmed?'Source assurance recorded ✓':'Verify omitted source content'}</button></div>`:''}</section>
     ${renderPlaybookBrief()}
@@ -5102,7 +5071,7 @@ function renderGuidedOverview(){
 function renderExcludedBlocksCard(){const excluded=(state.clauses||[]).filter(c=>!isReviewableClause(c));if(!excluded.length)return'';return `<details class="tool-card compact excluded-blocks-card"><summary><strong>Excluded source blocks (${excluded.length})</strong></summary><div class="mini">Titles, contact rows and signature blocks stay out of the decision queue. Include any block the detector got wrong.</div>${excluded.slice(0,30).map(c=>{const classification=WORKFLOW_CORE.classifyReviewability?.(c)||{};return `<div class="summary-item"><span>${escapeHtml(c.number||'')} ${escapeHtml(c.heading||truncateWords(c.body||'',12))}<small>${escapeHtml(classification.reason||'excluded')}</small></span><button type="button" class="btn btn-xs" data-reviewability-include="${escapeHtml(c.id)}">Include</button></div>`;}).join('')}</details>`;}
 
 function renderReadingDocument(){const clauses=(state.clauses||[]).filter(c=>String(c.body||c.heading||'').trim());return `<article class="reading-document"><header class="reading-document-head"><span class="eyebrow">Reading mode</span><h1>${escapeHtml(state.documentMeta.fileName||'Contract')}</h1><p>${clauses.length} document blocks · ${getDocumentWordCount()} words · terms and references remain interactive</p></header>${clauses.map(c=>`<section class="reading-clause" data-reading-clause="${escapeHtml(c.id)}"><div class="reading-clause-number">${escapeHtml(c.number||'')}</div>${c.headingDerivedFromBody?'':`<h2>${highlightDefinedTermsInSafeHtml(escapeHtml(c.heading||'Untitled clause'),c.id)}</h2>`}<div class="clause-body">${renderClauseBody(c.body||c.heading||'',c.id)}</div></section>`).join('')}</article>`;}
-function renderClauseView(){ if(els.app) els.app.classList.toggle('mobile-decision-collapsed', !!state.mobileDecisionCollapsed && isMobileViewport());bumpRenderCount('clause');
+function renderClauseView(){ if(els.app) els.app.classList.toggle('mobile-decision-collapsed', !!state.mobileDecisionCollapsed && isMobileViewport());renderDecisionFocusBar();bumpRenderCount('clause');
 const activeNoteForm = els.clauseView?.querySelector('.inline-notes-thread form');
 if(state.noteFormOpen && activeNoteForm && activeNoteForm.contains(document.activeElement)){
 state.pendingClauseViewRender=true;
@@ -5110,7 +5079,6 @@ return;
 }
 state.pendingClauseViewRender=false;
 closeSidePeek();
-renderDecisionFocusBar();
 if(state.focusMode){renderScopeBar(null);renderBreadcrumbBar(null);els.emptyState.classList.add('hidden');els.clauseView.classList.remove('hidden');els.clauseView.innerHTML=renderReadingDocument();bindTermChipInteractions(els.clauseView);return;}
 if(state.selectedClauseId===OVERVIEW_ID){
 renderScopeBar(null); renderBreadcrumbBar(null);
@@ -5153,7 +5121,10 @@ const draftingOpenAttr = (isComplex && showDrafting) ? 'open' : '';
 const contextOpenAttr = (isComplex && showStrategy) ? 'open' : '';
 const notesOpen = state.workflowMode==='review' || state.noteFormOpen;
 const simplePrompt = !isComplex ? `<div class="simple-clause-prompt">Low risk • use the canonical Decision control to accept or record another legal disposition.</div>` : '';
-els.clauseView.innerHTML=` ${renderClauseContextHeader(clause)} <div class="clause-kicker">${escapeHtml(clause.number)}</div> <h1 class="clause-heading">${escapeHtml(clause.heading)}</h1> <div class="clause-meta-strip"><span class="clause-type-badge">${escapeHtml(clause.type||'General')}${clause.classificationConfidence&&clause.classificationConfidence!=='High'?` <span class="heuristic-badge" title="${escapeHtml(clause.classificationConfidence)} confidence classification — verify the clause type against the source text">${escapeHtml(clause.classificationConfidence)}</span>`:''}</span><span class="clause-pill risk-pill risk-pill-${slugifyStatus(risk)}">${escapeHtml(risk)} legal risk</span>${renderReviewPriorityBadge(reviewPriority)}<span class="secondary-risk-badges">${renderRiskCategoryBadges(cid)}</span><span class="clause-pill status-pill status-pill-${slugifyStatus(reviewStatus)}">${escapeHtml(reviewStatus)}</span>${getClauseTimeLabel(cid) ? `<span class="clause-pill time-pill" title="Time spent on this clause">${escapeHtml(getClauseTimeLabel(cid))}</span>` : ''}<button data-action="toggle-risk-narrative" class="link-btn" type="button">Why?</button></div>${renderClausePlaybookStatus(clause)} <div id="riskNarrativeWrap" class="risk-narrative-wrap hidden">${renderRiskNarrativeHtml(cid)}</div> ${isComplex ? renderCompactIssueSummaryHtml(clause) : ""} ${renderClauseBodyWrap(clause)} ${renderDecisionCard(clause)} <div class="clause-decision-bar sticky-decision-bar canonical-action-bar"><button data-action="toggle-decision-collapse" class="primary compact-btn" type="button">Decision: ${escapeHtml(mapDecisionTypeToLegacyPosition(getClauseDecision(cid).type)||'Not set')} ▾</button><button data-action="add-note" class="compact-btn" type="button">+ Note</button><button data-action="open-playbook-guidance" class="compact-btn" type="button">Check playbook</button><details class="clause-more-actions"><summary class="compact-btn">More</summary><div class="clause-more-menu"><button data-action="copy-clause" class="compact-btn link-btn" type="button">Copy clause</button><button data-action="copy-review-brief" class="compact-btn link-btn" type="button">Review brief</button><button data-action="copy-negotiation-script" class="compact-btn link-btn" type="button">Negotiation script</button><button data-action="toggle-bookmark" class="compact-btn link-btn" type="button">${isClauseBookmarked(cid)?'★ Bookmarked':'☆ Bookmark'}</button><button data-action="snooze-clause" class="compact-btn link-btn" type="button">${isClauseSnoozed(cid)?'Unsnooze':'Snooze'}</button>${getActiveChangedClauseIdSet().size > 0 ? `<button type="button" class="compact-btn link-btn" data-action="next-changed-clause">Next change ↓</button>` : ``}</div></details></div> ${renderFallbackQuickBar(cid)} ${simplePrompt} ${isComplex ? renderClauseBriefSection(cid) : ""} <details class="clause-section clause-section-notes" ${notesOpen?'open':''}><summary>Notes & working thread</summary>${renderInlineClauseNotesHtml(clause)}</details> <div class="clause-controls-block"> ${nudge?`<div class="tool-card warn drafting-nudge"><div class="mini">${escapeHtml(nudge)}</div><button class="link-btn" data-action="dismiss-drafting-nudge" type="button">Dismiss</button></div>`:''} <details class="clause-section clause-section-primary complex-only-section" ${draftingOpenAttr}> <summary>Drafting aids & checklist</summary>${renderChecklistHtml(clause)}${renderPlaybookDecisionHtml(clause)}${renderDraftingSection(clause,draftOpen)}${renderPlaybookHtml(clause)}<div class="card-actions"><button data-action="save-clause-library" class="link-btn">Save to library</button><button data-action="save-as-playbook" class="link-btn">Save as playbook</button><button data-action="toggle-compare" class="link-btn">${state.clauseCompareMode[cid]?'Hide':'Compare'}</button><button data-action="toggle-redline" class="link-btn" ${!(state.clauseRecommendations[cid]||'').trim()?'disabled':''}>${state.clauseRedlineMode[cid]?'Hide':'Redline'}</button><button data-action="open-compare-overlay" class="link-btn" ${!(state.clauseRecommendations[cid]||state.clauseFallbacks[cid]||'').trim()?'disabled':''}>Expand</button></div>${renderClauseComparisonHtml(clause)}${renderClauseRedlineHtml(clause)} </details> <details class="clause-section" ${contextOpenAttr}> <summary>Negotiation context & history</summary><div class="tool-card compact"><div class="mini"><strong>Review status:</strong> ${escapeHtml(reviewStatus)}${routeTargets.length?` • <strong>Route to:</strong> ${escapeHtml(routeTargets.join(' • '))}`:''}</div></div>${renderNegotiationContextSection(cid)}${renderReferencedByHtml(cid)}<div class="tool-card compact"><div class="panel-subhead">Negotiation rounds</div>${renderNegotiationRoundsHtml(cid)}</div><div class="tool-card compact"><div class="panel-subhead">Position history</div>${renderPositionHistoryHtml(cid)}</div><div class="tool-card compact"><div class="panel-subhead">Activity timeline</div><div class="history-timeline">${renderReviewTimelineHtml(cid)}</div></div> </details> </div>`;
+els.clauseView.innerHTML=` ${renderClauseContextHeader(clause)} <div class="clause-kicker">${escapeHtml(clause.number)}</div> <h1 class="clause-heading">${escapeHtml(clause.heading)}</h1> <div class="clause-meta-strip"><span class="clause-type-badge">${escapeHtml(clause.type||'General')}</span><span class="clause-pill risk-pill risk-pill-${slugifyStatus(risk)}">${escapeHtml(risk)} legal risk</span>${renderReviewPriorityBadge(reviewPriority)}<span class="secondary-risk-badges">${renderRiskCategoryBadges(cid)}</span><span class="clause-pill status-pill status-pill-${slugifyStatus(reviewStatus)}">${escapeHtml(reviewStatus)}</span>${getClauseTimeLabel(cid) ? `<span class="clause-pill time-pill" title="Time spent on this clause">${escapeHtml(getClauseTimeLabel(cid))}</span>` : ''}<button data-action="toggle-risk-narrative" class="link-btn" type="button">Why?</button></div>${renderClausePlaybookStatus(clause)} <div id="riskNarrativeWrap" class="risk-narrative-wrap hidden">${renderRiskNarrativeHtml(cid)}</div> ${isComplex ? renderCompactIssueSummaryHtml(clause) : ""} ${renderClauseBodyWrap(clause)} ${renderDecisionCard(clause)} <div class="clause-decision-bar sticky-decision-bar canonical-action-bar"><button data-action="toggle-decision-collapse" class="primary compact-btn" type="button">Decision: ${escapeHtml(mapDecisionTypeToLegacyPosition(getClauseDecision(cid).type)||'Not set')} ▾</button><button data-action="add-note" class="compact-btn" type="button">+ Note</button><button data-action="open-playbook-guidance" class="compact-btn" type="button">Check playbook</button><details class="clause-more-actions"><summary class="compact-btn">More</summary><div class="clause-more-menu"><button data-action="copy-clause" class="compact-btn link-btn" type="button">Copy clause</button><button data-action="copy-review-brief" class="compact-btn link-btn" type="button">Review brief</button><button data-action="copy-negotiation-script" class="compact-btn link-btn" type="button">Negotiation script</button><button data-action="toggle-bookmark" class="compact-btn link-btn" type="button">${isClauseBookmarked(cid)?'★ Bookmarked':'☆ Bookmark'}</button><button data-action="snooze-clause" class="compact-btn link-btn" type="button">${isClauseSnoozed(cid)?'Unsnooze':'Snooze'}</button>${getActiveChangedClauseIdSet().size > 0 ? `<button type="button" class="compact-btn link-btn" data-action="next-changed-clause">Next change ↓</button>` : ``}</div></details></div> ${renderFallbackQuickBar(cid)} ${simplePrompt} ${isComplex ? renderClauseBriefSection(cid) : ""} <details class="clause-section clause-section-notes" ${notesOpen?'open':''}><summary>Notes & working thread</summary>${renderInlineClauseNotesHtml(clause)}</details> <div class="clause-controls-block"> ${nudge?`<div class="tool-card warn drafting-nudge"><div class="mini">${escapeHtml(nudge)}</div><button class="link-btn" data-action="dismiss-drafting-nudge" type="button">Dismiss</button></div>`:''} <details class="clause-section clause-section-primary complex-only-section" ${draftingOpenAttr}> <summary>Drafting aids & checklist</summary>${renderChecklistHtml(clause)}${renderPlaybookDecisionHtml(clause)}${renderDraftingSection(clause,draftOpen)}${renderPlaybookHtml(clause)}<div class="card-actions"><button data-action="save-clause-library" class="link-btn">Save to library</button><button data-action="save-as-playbook" class="link-btn">Save as playbook</button><button data-action="toggle-compare" class="link-btn">${state.clauseCompareMode[cid]?'Hide':'Compare'}</button><button data-action="toggle-redline" class="link-btn" ${!(state.clauseRecommendations[cid]||'').trim()?'disabled':''}>${state.clauseRedlineMode[cid]?'Hide':'Redline'}</button><button data-action="open-compare-overlay" class="link-btn" ${!(state.clauseRecommendations[cid]||state.clauseFallbacks[cid]||'').trim()?'disabled':''}>Expand</button></div>${renderClauseComparisonHtml(clause)}${renderClauseRedlineHtml(clause)} </details> <details class="clause-section" ${contextOpenAttr}> <summary>Negotiation context & history</summary><div class="tool-card compact"><div class="mini"><strong>Review status:</strong> ${escapeHtml(reviewStatus)}${routeTargets.length?` • <strong>Route to:</strong> ${escapeHtml(routeTargets.join(' • '))}`:''}</div></div>${renderNegotiationContextSection(cid)}${renderReferencedByHtml(cid)}<div class="tool-card compact"><div class="panel-subhead">Negotiation rounds</div>${renderNegotiationRoundsHtml(cid)}</div><div class="tool-card compact"><div class="panel-subhead">Position history</div>${renderPositionHistoryHtml(cid)}</div><div class="tool-card compact"><div class="panel-subhead">Activity timeline</div><div class="history-timeline">${renderReviewTimelineHtml(cid)}</div></div> </details> </div>`;
+  if(clause.classificationConfidence&&clause.classificationConfidence!=='High'){
+    const typeBadge=els.clauseView.querySelector('.clause-type-badge');const confidence=document.createElement('span');confidence.className='heuristic-badge';confidence.textContent=clause.classificationConfidence;confidence.title=`${clause.classificationConfidence} confidence classification — verify the clause type against the source text`;typeBadge?.append(' ',confidence);
+  }
   const renderedHeading=els.clauseView.querySelector('.clause-heading');if(renderedHeading)renderedHeading.innerHTML=highlightDefinedTermsInSafeHtml(escapeHtml(clause.heading),cid);
   const sourceWrap=els.clauseView.querySelector('.clause-body-wrap');sourceWrap?.insertAdjacentHTML('afterend',`${renderDeterministicClauseExplanation(clause)}${renderSourceVerification(clause)}${renderClauseFindingsInline(clause)}`);if(!isComplex&&state.clauseBriefOpenIds?.[cid])sourceWrap?.insertAdjacentHTML('afterend',renderClauseBriefSection(cid));
   bindTermChipInteractions(els.clauseView);
@@ -5439,8 +5410,7 @@ const seekC=posC['Seek amendment']||0;const rejectC=posC['Reject']||0;const escC
 const signing=computeSigningReadinessChecks();
 const topItems=getStrategyFilteredClauses().slice().sort((a,b)=>riskWeight(state.clauseRiskScores?.[b.id]||'Low')-riskWeight(state.clauseRiskScores?.[a.id]||'Low')).slice(0,8);
 
-els.summaryPanel.innerHTML=`<div id="reviewProgressMount"></div>
-<div class="panel-subhead">Overview</div>
+els.summaryPanel.innerHTML=`<div id="reviewProgressMount"></div><div class="panel-subhead">Overview</div>
 ${state.workflowMode==='outputs'?'<div class="tool-card info"><div class="mini">Outputs mode is active. Use the Export card or the Export button in the header to generate negotiation and approval packs.</div><div class="card-actions"><button id="copyApprovalPackFromSummaryBtn" type="button">Copy approval pack</button><button id="exportApprovalPackFromSummaryBtn" type="button">Export approval pack</button></div></div>':''}
 ${renderNextBestActionCard()}
 ${state.executionMode ? buildUpcomingObligationsCard() : ''}
@@ -5814,8 +5784,8 @@ function deleteLibraryEntry(id){state.clauseLibrary=state.clauseLibrary.filter(x
 function handleClauseLibraryImport(e){const f=e.target.files?.[0];if(!f)return;if(f.size>MAX_LIBRARY_FILE_BYTES){showToast('Precedent import exceeds the 3 MB safety limit.','error');e.target.value='';return;}f.text().then(t=>{const imp=JSON.parse(t);if(!Array.isArray(imp)||imp.length>MAX_LIBRARY_ENTRIES)throw new Error(`Import must contain no more than ${MAX_LIBRARY_ENTRIES} entries.`);const norm=imp.map(normalizeLibraryEntry).filter(Boolean);if(!norm.length)throw new Error('No valid entries');const rejected=imp.length-norm.length;const preview=norm.slice(0,5).map(item=>item.title).join('\n• ');if(!window.confirm(`Import ${norm.length} validated precedent${norm.length===1?'':'s'}${rejected?` (${rejected} rejected by limits)`:''}?\n\nPreview:\n• ${preview}${norm.length>5?'\n• …':''}`))return;state.clauseLibrary=mergeClauseLibraryEntries(state.clauseLibrary,norm).slice(0,MAX_LIBRARY_ENTRIES);boilerplateScoresDirty=true;saveClauseLibraryState();showToast(`Imported ${norm.length} entries${rejected?`; rejected ${rejected}`:''}`,'info');}).catch(err=>{console.warn(err);showToast(err?.message||'Unable to import library.','error');}).finally(()=>{if(els.libraryImportInput)els.libraryImportInput.value='';});}
 
 /* -- Storage -- */
-function serializeStateForStorage(){const p=JSON.parse(JSON.stringify(state));delete p.clauseLibrary;delete p.playbookPackages;delete p.clauseRedlineCache;delete p.pendingRestoreSession;delete p.pendingRestoreMeta;delete p.navHistory;delete p.navHistoryIndex;delete p.navForwardHistory;p.noteFormOpen=!!(p.noteDraft&&String(p.noteDraft.text||'').length);p.sessionRestored=false;p.snapshotNotice='';p.loadingMessage='';p.focusMode=false;p.clauseCompareMode={};p.clauseRedlineMode={};p.reviewLog=Array.isArray(p.reviewLog)?p.reviewLog.slice(-MAX_REVIEW_LOG_ENTRIES):[];p.lastPersistedAt=new Date().toISOString();p.writerTabId=TAB_SESSION_ID;p.storageGeneration=autosaveDirtyGeneration;p.buildVersion=BUILD_VERSION;p.schemaVersion=SESSION_SCHEMA_VERSION;p.analyzerVersion=ANALYZER_VERSION;p.sourceHash=state.documentMeta?.sourceFingerprint||'';return p;}
-function serializeStateForExport(){const p=JSON.parse(JSON.stringify(state));delete p.clauseLibrary;delete p.playbookPackages;p.currentRound=Number(state.currentRound||1);p.savedWorkspaces=state.savedWorkspaces||[];p.sessionReturn=state.sessionReturn||{};p.selectedSnapshotCompareId=state.selectedSnapshotCompareId||'';p.selectedRoundCompareKey=state.selectedRoundCompareKey||'';p.compareOnlyMode=!!state.compareOnlyMode;p.definitionPassDoneAt=state.definitionPassDoneAt||'';delete p.navHistory;delete p.navHistoryIndex;delete p.navForwardHistory;delete p.pendingRestoreMeta;p.noteFormOpen=!!(p.noteDraft&&String(p.noteDraft.text||'').length);p.sessionRestored=false;p.snapshotNotice='';p.loadingMessage='';p.focusMode=false;delete p.clauseRedlineCache;p.reviewLog=Array.isArray(p.reviewLog)?p.reviewLog.slice(-MAX_REVIEW_LOG_ENTRIES):[];p.lastPersistedAt=new Date().toISOString();p.buildVersion=BUILD_VERSION;p.schemaVersion=SESSION_SCHEMA_VERSION;p.analyzerVersion=ANALYZER_VERSION;p.sourceHash=state.documentMeta?.sourceFingerprint||'';return p;}
+function serializeStateForStorage(){const p=JSON.parse(JSON.stringify(state));delete p.clauseLibrary;delete p.playbookPackages;delete p.clauseRedlineCache;delete p.pendingRestoreSession;delete p.pendingRestoreMeta;delete p.navHistory;delete p.navHistoryIndex;delete p.navForwardHistory;p.noteFormOpen=!!(p.noteDraft&&String(p.noteDraft.text||'').length);p.sessionRestored=false;p.snapshotNotice='';p.loadingMessage='';p.focusMode=false;p.decisionFocus=false;p.returnToCheckArmed=false;p.checkReturnScrollTop=0;p.clauseCompareMode={};p.clauseRedlineMode={};p.reviewLog=Array.isArray(p.reviewLog)?p.reviewLog.slice(-MAX_REVIEW_LOG_ENTRIES):[];p.lastPersistedAt=new Date().toISOString();p.writerTabId=TAB_SESSION_ID;p.storageGeneration=autosaveDirtyGeneration;p.buildVersion=BUILD_VERSION;p.schemaVersion=SESSION_SCHEMA_VERSION;p.analyzerVersion=ANALYZER_VERSION;p.sourceHash=state.documentMeta?.sourceFingerprint||'';return p;}
+function serializeStateForExport(){const p=JSON.parse(JSON.stringify(state));delete p.clauseLibrary;delete p.playbookPackages;p.currentRound=Number(state.currentRound||1);p.savedWorkspaces=state.savedWorkspaces||[];p.sessionReturn=state.sessionReturn||{};p.selectedSnapshotCompareId=state.selectedSnapshotCompareId||'';p.selectedRoundCompareKey=state.selectedRoundCompareKey||'';p.compareOnlyMode=!!state.compareOnlyMode;p.definitionPassDoneAt=state.definitionPassDoneAt||'';delete p.navHistory;delete p.navHistoryIndex;delete p.navForwardHistory;delete p.pendingRestoreMeta;p.noteFormOpen=!!(p.noteDraft&&String(p.noteDraft.text||'').length);p.sessionRestored=false;p.snapshotNotice='';p.loadingMessage='';p.focusMode=false;p.decisionFocus=false;p.returnToCheckArmed=false;p.checkReturnScrollTop=0;delete p.clauseRedlineCache;p.reviewLog=Array.isArray(p.reviewLog)?p.reviewLog.slice(-MAX_REVIEW_LOG_ENTRIES):[];p.lastPersistedAt=new Date().toISOString();p.buildVersion=BUILD_VERSION;p.schemaVersion=SESSION_SCHEMA_VERSION;p.analyzerVersion=ANALYZER_VERSION;p.sourceHash=state.documentMeta?.sourceFingerprint||'';return p;}
 function sanitizeClauseId(id,fallback){
   const raw=typeof id==='string'?id:String(id||'');
   const cleaned=raw.replace(/[^A-Za-z0-9_.:-]/g,'').trim();
@@ -5901,7 +5871,7 @@ function renderClauseContextHeader(clause){
 }
 
 function recomputeAfterSourceCorrection(){
-  classifyClauses(state.clauses);const td=extractDefinedTerms(state.clauses,[]);state.definedTerms=td.terms;state.possibleDefinedTerms=td.possibleTerms;state.issues.duplicateDefinitions=td.duplicateDefinitions;resolveCrossReferencedDefinitions(state.clauses,state.definedTerms);mapTermUsage(state.clauses,state.definedTerms);precomputeTermHits();state.issues.undefinedCapitalizedTerms=detectUndefinedCapitalizedTerms(state.clauses,state.definedTerms);state.issues.unusedDefinitions=detectUnusedDefinitions(state.definedTerms);state.definitionGraph=buildDefinitionGraph(state.clauses,state.definedTerms);state.legalConceptEvidence=ANALYSIS_CORE.detectLegalConcepts?.(state.clauses)||{byConcept:{},all:[],present:{}};state.legalPropositions=ANALYSIS_CORE.extractLegalPropositions?.(state.clauses,state.rawText||'')||[];state.issues.asymmetries=ANALYSIS_CORE.detectAsymmetries?.(state.clauses,state.rawText||'',state.legalPropositions)||[];state.referenceLedger=buildReferenceLedger(state.clauses);state.issues.crossReferenceBreaks=state.referenceLedger.filter(item=>item.status==='missing'||item.status==='ambiguous');state.issues.semanticCrossReferenceWarnings=state.referenceLedger.filter(item=>item.status==='semantic-mismatch');state.expectedClauseCoverage=detectExpectedClauseCoverage(state.clauses,state.contractType);state.documentMeta.sourceIntegrity={...(state.documentMeta.sourceIntegrity||{}),lawyerCorrected:true,requiresConfirmation:false};calculateAllRiskScores();state.reviewItems=buildCanonicalReviewItems();recomputeDerivedState('source-correction');renderAll();scheduleAutosave({reason:'critical'});
+  classifyClauses(state.clauses);const td=extractDefinedTerms(state.clauses,[]);state.definedTerms=td.terms;state.possibleDefinedTerms=td.possibleTerms;state.issues.duplicateDefinitions=td.duplicateDefinitions;resolveCrossReferencedDefinitions(state.clauses,state.definedTerms);mapTermUsage(state.clauses,state.definedTerms);precomputeTermHits();state.issues.undefinedCapitalizedTerms=detectUndefinedCapitalizedTerms(state.clauses,state.definedTerms);state.issues.unusedDefinitions=detectUnusedDefinitions(state.definedTerms);state.definitionGraph=buildDefinitionGraph(state.clauses,state.definedTerms);state.legalConceptEvidence=ANALYSIS_CORE.detectLegalConcepts?.(state.clauses)||{byConcept:{},all:[],present:{}};state.legalPropositions=ANALYSIS_CORE.extractLegalPropositions?.(state.clauses,state.rawText||'')||[];state.issues.asymmetries=ANALYSIS_CORE.detectAsymmetries?.(state.clauses,state.rawText||'',state.legalPropositions)||[];state.referenceLedger=buildReferenceLedger(state.clauses);state.issues.crossReferenceBreaks=state.referenceLedger.filter(item=>['missing','ambiguous','malformed'].includes(item.status));state.issues.semanticCrossReferenceWarnings=state.referenceLedger.filter(item=>item.status==='semantic-mismatch');state.expectedClauseCoverage=detectExpectedClauseCoverage(state.clauses,state.contractType);state.documentMeta.sourceIntegrity={...(state.documentMeta.sourceIntegrity||{}),lawyerCorrected:true,requiresConfirmation:false};calculateAllRiskScores();state.reviewItems=buildCanonicalReviewItems();recomputeDerivedState('source-correction');renderAll();scheduleAutosave({reason:'critical'});
 }
 function invalidateDecisionAfterSourceChange(clauseIds,reason){for(const clauseId of clauseIds.filter(Boolean)){const prior=state.decisionByClause?.[clauseId];if(prior?.type)logReviewAction('decision-invalidated-by-source-change',clauseId,{summary:reason,priorDecision:JSON.parse(JSON.stringify(prior))});delete state.decisionByClause?.[clauseId];delete state.clausePositions?.[clauseId];delete state.clauseReviewStatus?.[clauseId];delete state.verificationByKey?.[`clause-source-${clauseId}`];}state.documentMeta.sourceCorrectionAudit=[...(state.documentMeta.sourceCorrectionAudit||[]),{at:new Date().toISOString(),reason,affectedClauseIds:[...clauseIds]}].slice(-100);}
 let pendingSourceCorrection=null;
@@ -6213,7 +6183,7 @@ function recomputeDeterministicModelFromRestoredSource(){
   mergeDetectedTerms(state.definedTerms,state.issues.duplicateDefinitions,extractPartyDefinedTerms(state.rawText,state.clauses));resolveCrossReferencedDefinitions(state.clauses,state.definedTerms);mapTermUsage(state.clauses,state.definedTerms);
   state.issues.unresolvedCrossReferencedDefinitions=detectUnresolvedCrossReferencedDefinitions(state.definedTerms);state.issues.definitionQuality=detectDefinitionQuality(state.definedTerms,state.issues.duplicateDefinitions);state.issues.undefinedCapitalizedTerms=detectUndefinedCapitalizedTerms(state.clauses,state.definedTerms);state.issues.unusedDefinitions=detectUnusedDefinitions(state.definedTerms);state.definitionGraph=buildDefinitionGraph(state.clauses,state.definedTerms);
   state.placeholders=detectPlaceholders(state.clauses,[]);syncPlaceholderResolution();classifyClauses(state.clauses);state.legalConceptEvidence=typeof ANALYSIS_CORE.detectLegalConcepts==='function'?ANALYSIS_CORE.detectLegalConcepts(state.clauses):{byConcept:{},all:[],present:{}};state.legalPropositions=ANALYSIS_CORE.extractLegalPropositions?.(state.clauses,state.rawText||'')||[];state.obligations=extractObligations(state.clauses);state.deadlines=extractDeadlines(state.clauses);state.issues.subjectiveStandards=ANALYSIS_CORE.detectSubjectiveStandards?.(state.clauses,state.rawText||'')||[];state.issues.asymmetries=ANALYSIS_CORE.detectAsymmetries?.(state.clauses,state.rawText||'',state.legalPropositions)||[];
-  state.referenceLedger=buildReferenceLedger(state.clauses);state.issues.crossReferenceBreaks=state.referenceLedger.filter(item=>['missing','ambiguous'].includes(item.status));state.issues.semanticCrossReferenceWarnings=state.referenceLedger.filter(item=>item.status==='semantic-mismatch');state.issues.consistency=detectConsistencyIssues(state.clauses,state.definedTerms);state.issues.survivalClauses=detectSurvivalClauses(state.clauses);state.issues.commercialDeviations=detectNumericalAnomalies(state.clauses);state.issues.missingStandardClauses=detectMissingStandardClauses(state.clauses);state.expectedClauseCoverage=detectExpectedClauseCoverage(state.clauses,state.contractType);state.issues.openObligations=detectOpenObligations();state.issues.crossClauseChecks=detectCrossClauseChecks();
+  state.referenceLedger=buildReferenceLedger(state.clauses);state.issues.crossReferenceBreaks=state.referenceLedger.filter(item=>['missing','ambiguous','malformed'].includes(item.status));state.issues.semanticCrossReferenceWarnings=state.referenceLedger.filter(item=>item.status==='semantic-mismatch');state.issues.consistency=detectConsistencyIssues(state.clauses,state.definedTerms);state.issues.survivalClauses=detectSurvivalClauses(state.clauses);state.issues.commercialDeviations=detectNumericalAnomalies(state.clauses);state.issues.missingStandardClauses=detectMissingStandardClauses(state.clauses);state.expectedClauseCoverage=detectExpectedClauseCoverage(state.clauses,state.contractType);state.issues.openObligations=detectOpenObligations();state.issues.crossClauseChecks=detectCrossClauseChecks();
   const healthStatus=buildSourceConfidenceLedger().status==='strong'?'checked':'limited';state.detectorHealth={definitions:{status:healthStatus,count:Object.keys(state.definedTerms).length},undefinedTerms:{status:healthStatus,count:state.issues.undefinedCapitalizedTerms.length},crossReferences:{status:healthStatus,count:state.issues.crossReferenceBreaks.length},placeholders:{status:healthStatus,count:state.placeholders.filter(p=>!p.resolved&&!p.ignored).length},obligations:{status:healthStatus,count:state.obligations.length},deadlines:{status:healthStatus,count:state.deadlines.length},subjectiveStandards:{status:healthStatus,count:state.issues.subjectiveStandards.length},asymmetries:{status:healthStatus,count:state.issues.asymmetries.length},legalConcepts:{status:healthStatus,count:state.legalConceptEvidence?.all?.length||0}};precomputeTermHits();state.reviewItems=buildCanonicalReviewItems();
 }
 
@@ -6281,11 +6251,11 @@ state.filters=saved.filters&&typeof saved.filters==='object'?{content:saved.filt
 state.activeTab=TAB_IDS.includes(saved.activeTab)?saved.activeTab:'summary';
 state.resolvedPlaceholderIds=Array.isArray(saved.resolvedPlaceholderIds)?saved.resolvedPlaceholderIds:[];
 state.noteDraft=saved.noteDraft&&typeof saved.noteDraft==='object'?{...makeEmptyNoteDraft(saved.noteDraft.clauseId||''),...saved.noteDraft}:null;
-state.noteFormOpen=!!state.noteDraft;state.focusMode=false;state.decisionFocus=false;applyFocusMode();applyDecisionFocus();
+state.noteFormOpen=!!state.noteDraft;state.focusMode=false;state.decisionFocus=false;state.returnToCheckArmed=false;state.checkReturnScrollTop=0;applyFocusMode();applyDecisionFocus();
 syncPlaceholderResolution();state.sessionRestored=true;
 if(els.contractTypeSelect){const rev={'SaaS Agreement':'SaaS Agreement','Technology License':'Technology License','DPA':'DPA','DPDP DPA':'DPDP DPA','Custom':'Custom','IT/ITES Outsourcing':'IT/ITES Outsourcing','Staff Augmentation':'Staff Augmentation','Lease':'Lease'};els.contractTypeSelect.value=rev[state.contractType||'Custom']||(state.contractType||'Custom');}
 if(!state.selectedClauseId&&state.clauses[0])state.selectedClauseId=OVERVIEW_ID;
-if(state.clauses.length){seedDecisionStateFromLegacy();boilerplateScoresDirty=true;if(analyzerChanged)recomputeDeterministicModelFromRestoredSource();calculateAllRiskScores();if(!Object.keys(state.clauseTermHits||{}).length)precomputeTermHits();state.issues.undefinedCapitalizedTerms=detectUndefinedCapitalizedTerms(state.clauses,state.definedTerms);state.definitionGraph=buildDefinitionGraph(state.clauses,state.definedTerms);state.referenceLedger=buildReferenceLedger(state.clauses);state.issues.crossReferenceBreaks=state.referenceLedger.filter(item=>item.status==='missing'||item.status==='ambiguous');state.issues.semanticCrossReferenceWarnings=state.referenceLedger.filter(item=>item.status==='semantic-mismatch');state.reviewItems=buildCanonicalReviewItems();}
+if(state.clauses.length){seedDecisionStateFromLegacy();boilerplateScoresDirty=true;if(analyzerChanged)recomputeDeterministicModelFromRestoredSource();calculateAllRiskScores();if(!Object.keys(state.clauseTermHits||{}).length)precomputeTermHits();state.issues.undefinedCapitalizedTerms=detectUndefinedCapitalizedTerms(state.clauses,state.definedTerms);state.definitionGraph=buildDefinitionGraph(state.clauses,state.definedTerms);state.referenceLedger=buildReferenceLedger(state.clauses);state.issues.crossReferenceBreaks=state.referenceLedger.filter(item=>['missing','ambiguous','malformed'].includes(item.status));state.issues.semanticCrossReferenceWarnings=state.referenceLedger.filter(item=>item.status==='semantic-mismatch');state.reviewItems=buildCanonicalReviewItems();}
 syncLandingIntakeFromMatter();
 renderPlaybookPackageSelect();
 syncFilterUI();
@@ -6323,7 +6293,7 @@ els.snapshotList.querySelectorAll('.restore-snapshot-btn').forEach(b=>b.addEvent
 els.snapshotList.querySelectorAll('.compare-snapshot-btn').forEach(b=>b.addEventListener('click',()=>showSnapshotDiff(b.dataset.id))); state.snapshotItems=items||[];
 els.snapshotList.querySelectorAll('.delete-snapshot-btn').forEach(b=>b.addEventListener('click',()=>deleteSnapshot(b.dataset.id)));
 }
-async function restoreSnapshot(id){try{const db=await openDb();const tx=db.transaction(DB_STORE,'readonly');const r=tx.objectStore(DB_STORE).get(id);const i=await promisifyRequest(r);if(!i?.payload)return;const label=i.label||i.fileName||'this snapshot';const details=`${i.clauseCount||0} clauses • ${i.noteCount||0} notes • ${formatShortDateTime(i.createdAt)||'date unavailable'}`;const confirmed=await showConfirmDialog(`${details}\n\nYour current review will be saved automatically as a recovery snapshot first.`,{title:`Restore "${label}"?`,confirmLabel:'Restore'});if(!confirmed)return;if(state.clauses.length)await saveSnapshotRecord(`Recovery before restoring ${label}`,getActiveWorkflowStage(),{recovery:true});hydrateState(i.payload);syncLandingIntakeFromMatter();state.diagnostics.lastRestoreSource='snapshot';state.sessionRestored=false;state.snapshotNotice=`Restored: ${label}`;showApp();renderAll();closeSnapshotsModal();scheduleAutosave({reason:'immediate'});showToast(`${state.snapshotNotice} • recovery snapshot saved`,'info');setTimeout(()=>{state.snapshotNotice='';renderHeader();},2400);}catch(e){console.warn('Restore failed',e);showToast('Restore failed. Your current review was not replaced.','error');}}
+async function restoreSnapshot(id){try{const db=await openDb();const tx=db.transaction(DB_STORE,'readonly');const r=tx.objectStore(DB_STORE).get(id);const i=await promisifyRequest(r);if(!i?.payload)return;const label=i.label||i.fileName||'this snapshot';const details=`${i.clauseCount||0} clauses • ${i.noteCount||0} notes • ${formatShortDateTime(i.createdAt)||'date unavailable'}`;if(!await showConfirmDialog({title:`Restore “${label}”?`,message:details,detail:'Your current review will be saved automatically as a recovery snapshot first.',confirmLabel:'Restore snapshot',danger:true}))return;if(state.clauses.length)await saveSnapshotRecord(`Recovery before restoring ${label}`,getActiveWorkflowStage(),{recovery:true});hydrateState(i.payload);syncLandingIntakeFromMatter();state.diagnostics.lastRestoreSource='snapshot';state.sessionRestored=false;state.snapshotNotice=`Restored: ${label}`;showApp();renderAll();closeSnapshotsModal();scheduleAutosave({reason:'immediate'});showToast(`${state.snapshotNotice} • recovery snapshot saved`,'info');setTimeout(()=>{state.snapshotNotice='';renderHeader();},2400);}catch(e){console.warn('Restore failed',e);showToast('Restore failed. Your current review was not replaced.','error');}}
 async function deleteSnapshot(id){const item=(state.snapshotItems||[]).find(entry=>entry.id===id);if(!window.confirm(`Delete recovery snapshot “${item?.label||item?.fileName||'Selected snapshot'}”? This cannot be undone.`))return;try{const db=await openDb();const tx=db.transaction(DB_STORE,'readwrite');tx.objectStore(DB_STORE).delete(id);await waitForTransaction(tx);const items=await listSnapshots();renderSnapshotsModal(items);showToast('Snapshot deleted','info');}catch(e){console.warn('Delete failed',e);}}
 
 /* -- Report HTML builder -- */
@@ -6959,7 +6929,7 @@ function recomputeReadiness(){
 function getQueueFilteredClauses(){
   const clauses=getFilteredClauses({content:'all',review:'all'}).filter(isReviewableClause);
   switch(state.queuePreset){
-    case 'needs-decision': return clauses.filter(c=>!getClauseDecision(c.id).type);
+    case 'needs-decision': return clauses.filter(c=>clauseRequiresDecision(c)&&!getClauseDecision(c.id).type);
     case 'high-risk': return clauses.filter(c=>(state.clauseRiskScores?.[c.id]||'')==='High');
     case 'needs-fallback': return clauses.filter(c=>{ const d=getClauseDecision(c.id); return ['seek-amendment','reject'].includes(d.type) && !String(d.fallback||'').trim(); });
     case 'awaiting-input': return clauses.filter(c=>getClauseDecision(c.id).type==='need-input');
@@ -7292,9 +7262,9 @@ function updateCockpitCollapseUI() {
   if (bar) {
     bar.classList.toggle('hidden', !collapsed);
     if (collapsed && state.clauses.length) {
-      const reviewable = getReviewableClauses();
-      const decided = reviewable.filter(c => !!getClauseDecision(c.id).type).length;
-      const total = reviewable.length;
+      const decisionRequired = getDecisionRequiredClauses();
+      const decided = decisionRequired.filter(c => !!getClauseDecision(c.id).type).length;
+      const total = decisionRequired.length;
       const loops = (state.openLoops || []).length;
       bar.textContent = `${decided}/${total} decided · ${countFlags()} findings · ${loops} open loop${loops === 1 ? '' : 's'}`;
     }
@@ -7302,30 +7272,19 @@ function updateCockpitCollapseUI() {
   if (btn) btn.textContent = collapsed ? '▸' : '▾';
 }
 
-// Queried live and called both here and at the end of renderSummaryPanel(), because
-// renderSummaryPanel() replaces tab-summary's entire innerHTML — recreating this mount node
-// (empty) each time — so a cached reference goes stale, and the mount needs repopulating
-// right after every recreation rather than waiting on the next unrelated renderHeader() call.
 function renderReviewProgressMount(){
-  const reviewProgressMount = document.getElementById('reviewProgressMount');
-  if (!reviewProgressMount) return;
-  if (state.clauses.length) {
-    const _reviewable = getReviewableClauses();
-    const _reviewed = _reviewable.filter(c => (state.clauseReviewStatus?.[c.id] || '') === 'Reviewed').length;
-    const _total = _reviewable.length;
-    const _pct = _total ? Math.round((_reviewed / _total) * 100) : 0;
-    reviewProgressMount.innerHTML = `<div class="review-progress" title="A separate, lawyer-set status distinct from &quot;decided&quot; above: mark a clause Reviewed from its review-status control once you consider it fully checked, whether or not it also required a decision."><div class="review-progress-bar" style="width:${_pct}%"></div><span class="review-progress-label">${_reviewed}/${_total} reviewed</span></div>`;
-  } else {
-    reviewProgressMount.innerHTML = '';
-  }
+  const mount=document.getElementById('reviewProgressMount');if(!mount)return;
+  if(!state.clauses.length){mount.innerHTML='';return;}
+  const reviewable=getReviewableClauses();const reviewed=reviewable.filter(clause=>(state.clauseReviewStatus?.[clause.id]||'')==='Reviewed').length;const total=reviewable.length;const percent=total?Math.round(reviewed/total*100):0;
+  mount.innerHTML=`<div class="review-progress" title="Lawyer-set review status, separate from legal decision completion"><div class="review-progress-bar" style="width:${percent}%"></div><span class="review-progress-label">${reviewed}/${total} reviewed</span></div>`;
 }
+
 function renderHeader(){
   renderAnnunciatorPanel(); updateWorkspaceControls(); recomputeOpenLoops();
   els.docName.textContent=state.documentMeta.fileName||'Untitled';
   const ready=state.readiness||{status:'blocked',blockers:[],decidedCount:0,totalCount:0};
   const base=`${getReviewableClauses().length} reviewable clauses • ${countFlags()} signals • ${ready.decidedCount||0}/${ready.totalCount||0} decided • ${(state.openLoops||[]).length} open loops`;
   els.docMeta.textContent=state.snapshotNotice?`${base} • ${state.snapshotNotice}`:base;
-  els.docMeta.title='Reviewable clauses: clauses that can carry a legal decision, excluding titles, signatures and bare section headings. Signals: findings detected across every check. Decided: clauses where a legal decision has been recorded, out of those that need one. Open loops: decisions still missing a required fallback, route, owner or approval.';
   renderMinimapRail();
   if(els.autosaveStatus){
     const label = state.prefs?.disableAutosave ? 'Autosave off' : (state.autosaveFailed ? 'Autosave failed' : (state.autosavePending ? 'Saving…' : (state.autosaveLastSavedAt ? `Saved ${formatShortTime(state.autosaveLastSavedAt)}` : 'Autosave ready')));
@@ -7376,6 +7335,7 @@ function applyWorkflowMode(){
 function setWorkflowStage(stage, opts={}){
   state.workflowStage=['intake','decide','prepare','close'].includes(stage)?stage:'decide';
   state.workflowMode=mapStageToLegacyMode(state.workflowStage);
+  if(state.workflowStage!=='decide'&&state.decisionFocus){state.decisionFocus=false;applyDecisionFocus();}
   state.activeTermFilter='';
   state.hudDismissed=false;
   const preserveTab = opts.preserveTab !== false;
