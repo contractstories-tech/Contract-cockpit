@@ -263,14 +263,14 @@
     return { index: -1, status: candidates.length ? 'candidates-rejected' : 'not-found', coverageRatio: 1, confidence: 'None', candidates };
   }
 
-  function assessDefinedTermCandidate(value, context = '') {
+  function assessDefinedTermCandidate(value, context = '', explicit = false) {
     const term = clean(value).replace(/^["']|["']$/g, '');
     const lower = term.toLowerCase();
     if (!term || term.length > 90) return { include: false, reason: 'empty or implausibly long candidate' };
-    if (/^(?:the|this|that|any|each|either|for|if|in|on|at|from|to|and|or|name|term|defined term|meaning)$/i.test(term)) return { include: false, reason: 'function word or administrative label' };
+    if (!explicit && /^(?:the|this|that|any|each|either|for|if|in|on|at|from|to|and|or|name|term|defined term|meaning)$/i.test(term)) return { include: false, reason: 'function word or administrative label' };
     if (/^[a-z]/.test(term)) return { include: false, reason: 'lower-case prose fragment, not a defined label' };
     if (/^For\s+(?:[A-Z][\w&.'-]*)(?:\s+[A-Z][\w&.'-]*){0,4}$/i.test(term) && /\b(?:contact|name|phone|e-?mail|signature|address)\b/i.test(context)) return { include: false, reason: 'contact or signature block label' };
-    if (/^(?:hereinafter\s+(?:jointly|collectively)?\s*referred\s+to\s+as|in\s+case\s+of\s+advance\s+payment|timesheets?\s+of\s+experts?)$/i.test(term)) return { include: false, reason: 'captured drafting phrase, not a label' };
+    if (!explicit && /^(?:hereinafter\s+(?:jointly|collectively)?\s*referred\s+to\s+as|in\s+case\s+of\s+advance\s+payment|timesheets?\s+of\s+experts?)$/i.test(term)) return { include: false, reason: 'captured drafting phrase, not a label' };
     if (/\b(?:shall|must|means?|referred to|hereinafter|payment|invoice|timesheet)\b/i.test(term) && term.split(/\s+/).length > 3) return { include: false, reason: 'operative phrase, not a defined label' };
     if (/\b(?:phone|e-?mail|address|contact persons?|signature|print name|title)\b/i.test(`${term} ${context}`) && !/definition|interpretation/i.test(context)) return { include: false, reason: 'administrative field' };
     if (!/[A-Za-z]/.test(term) || lower === 'n/a') return { include: false, reason: 'non-word candidate' };
