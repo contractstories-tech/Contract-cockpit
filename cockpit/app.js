@@ -6864,7 +6864,10 @@ function applyClauseDecision(cid, nextType){
   recordDecisionLog(cid);
   refreshDerivedClauseState(cid);
   recomputeOpenLoops();
-  onSubstantiveChange({rerenderClause:state.selectedClauseId===cid});
+  // A recorded legal decision must not sit behind the default 1500ms debounce: a lawyer who
+  // closes the tab moments after seeing "Decision saved" can otherwise lose it silently before
+  // the timer fires. Route it through the 50ms critical path instead.
+  onSubstantiveChange({rerenderClause:state.selectedClauseId===cid, autosaveDelay:AUTOSAVE_REASON_DEFAULT_DELAY.critical});
   if(state.prefs?.autoAdvanceDecisions!==false)pendingDecisionAutoAdvance.add(cid);else pendingDecisionAutoAdvance.delete(cid);
   maybeAutoAdvanceDecision(cid);
 }

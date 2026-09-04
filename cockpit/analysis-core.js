@@ -102,11 +102,16 @@
           const precededByPreposition = !explicitOption && /\b(?:of|by|from|under|with|on behalf of|behalf of|supervision of|authority of|instructions? of|direction of)\s*$/i.test(sentence.slice(Math.max(0,start-28),start));
           if (isPossessive || precededByPreposition) continue;
           const segment = sentence.slice(start, end);
-          const modality = segment.match(modalityPattern)?.[1] || '';
+          const modalityMatch = segment.match(modalityPattern);
+          const modality = modalityMatch?.[1] || '';
           if ((!modality&&!explicitOption) || !category.action.test(segment)) continue;
           const genericBoth = /^(?:Either Party|Each Party|Both Parties|The Parties)$/i.test(actorText);
           const actor = parties.find(p => [p.alias,p.name].some(v => String(v||'').toLowerCase() === actorText.toLowerCase()));
-          const polarity = /\b(?:not|cannot|can not)\b/i.test(modality) ? 'prohibited' : 'affirmative';
+          // A negation can land just after the modal rather than inside it — "shall have NO RIGHT to
+          // audit" is a prohibition even though the matched modality token is the bare, affirmative "shall".
+          const afterModality = modalityMatch ? segment.slice(modalityMatch.index+modalityMatch[0].length, modalityMatch.index+modalityMatch[0].length+40) : '';
+          const negatedRight = /^\s*(?:have|has)\s+no\s+(?:the\s+)?rights?\b|^\s*no\s+(?:right|entitlement)s?\b|^\s*not\s+(?:be\s+)?(?:entitled|permitted)\b/i.test(afterModality);
+          const polarity = /\b(?:not|cannot|can not)\b/i.test(modality) || negatedRight ? 'prohibited' : 'affirmative';
           const canonicalActors = genericBoth ? parties.map(p=>p.alias) : [actor?.alias || actorText];
           for (const canonicalActor of canonicalActors) propositions.push({
             id:`proposition:${clause.id}:${category.concept}:${canonicalActor}:${propositions.length+1}`,
@@ -441,6 +446,10 @@
     const recurringPattern = /\b(?:daily|weekly|monthly|quarterly|annually|each\s+(?:day|week|month|quarter|year)|every\s+\d+\s+(?:days?|weeks?|months?))\b/i;
     const promptnessPattern = /\b(promptly|immediately|without undue delay|as soon as reasonably practicable)\b/i;
     const interpretivePattern = /\b(?:shall (?:solely )?be governed|shall prevail|shall control|shall be construed|shall be deemed|shall mean|shall include|in case of (?:conflict|discrepancy)|order of precedence|governing law|contractual relationship)\b/i;
+    // "X shall have the right to..." / "X shall have no right to..." / "X shall (not) be entitled/permitted to..."
+    // are rights or prohibitions-on-a-right, not duties, even though they're introduced by a duty-signalling
+    // modal like "shall". These belong to proposition/asymmetry analysis, not the obligations register.
+    const rightsNotDutyPattern = /^(?:have|has)\s+(?:no\s+)?(?:the\s+)?rights?\s+to\b|^(?:not\s+)?be\s+entitled\s+to\b|^(?:not\s+)?be\s+permitted\s+to\b|^(?:have|has)\s+(?:no\s+)?entitlement\s+to\b/i;
     const records=[];const seen=new Set();
     for(const clause of clauses||[]){
       const bodyNoLabelRun=String(clause.body||'').replace(/\n+/g,' ').replace(/^(?:[A-Z][A-Za-z0-9 #()\/.,'-]{0,40}:\s*(?:\|\s*)?){2,}/,'');
@@ -456,7 +465,7 @@
         if(!actorMatch&&!pronoun)continue;
         const actor=actorMatch?canonicalizeObligationParty(actorMatch[1],source):'Uncertain actor';
         const verbTail=sentence.slice(actionMatch.index+actionMatch[0].length).trim();
-        if(!verbTail||/^(?:be governed|prevail|control|be construed|mean|include)\b/i.test(verbTail))continue;
+        if(!verbTail||rightsNotDutyPattern.test(verbTail)||/^(?:be governed|prevail|control|be construed|mean|include)\b/i.test(verbTail))continue;
         const countdownAll=[
           ...sentence.matchAll(new RegExp(countdownPattern.source,countdownPattern.flags.includes('g')?countdownPattern.flags:`${countdownPattern.flags}g`)),
           ...sentence.matchAll(new RegExp(noticePeriodPattern.source,noticePeriodPattern.flags.includes('g')?noticePeriodPattern.flags:`${noticePeriodPattern.flags}g`))
