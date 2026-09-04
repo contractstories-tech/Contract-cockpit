@@ -442,7 +442,8 @@
         const riskAllocation=/\b(?:aggregate liability|liability cap|liable for|indemnif|hold harmless|shall not exceed|capped at|limitation of liability)\b/i.test(sentence);
         if(!actionMatch||interpretivePattern.test(sentence)||riskAllocation)continue;
         const prefix=sentence.slice(0,actionMatch.index);actorPattern.lastIndex=0;let actorMatch=null;let candidate;
-        while((candidate=actorPattern.exec(prefix))!==null)actorMatch=candidate;
+        const prepositionBeforeActor=/\b(?:of|by|from|under|on behalf of|behalf of|supervision of|authority of|instructions? of|direction of)\s*$/i;
+        while((candidate=actorPattern.exec(prefix))!==null){const before=prefix.slice(Math.max(0,candidate.index-28),candidate.index);if(prepositionBeforeActor.test(before))continue;actorMatch=candidate;}
         const pronoun=prefix.match(/\b(it|they|such party|that party)\b[^.!?;]{0,80}$/i)?.[1]||'';
         if(!actorMatch&&!pronoun)continue;
         const actor=actorMatch?canonicalizeObligationParty(actorMatch[1],source):'Uncertain actor';
