@@ -2225,8 +2225,8 @@ function computeClauseIntelligence(clause){
 
   if(type==='Liability'){
     if(/unlimited|without limit|uncapped/.test(body)) addDriver('Potentially uncapped liability exposure',3);
-    if(!has(/shall not exceed|not exceed|aggregate liability|liability cap|cap on liability|limit(?:ation)? of liability/)) addMissing('No clear liability cap detected',2);
-    if(has(/shall not exceed|not exceed|aggregate liability|liability cap|cap on liability|limit(?:ation)? of liability/) && !has(/fees?|charges?|amounts paid|amounts payable|twelve months|12 months|preceding 12 months|contract value/)) addDriver('Cap appears not clearly tied to fees, spend, or time period',2);
+    if(!has(/shall not exceed|not exceed|aggregate liability|liability cap|cap on liability|limit(?:ation)? of liability|in no event[^.;]{0,250}(?:shall|will|must)[^.;]{0,180}exceed/)) addMissing('No clear liability cap detected',2);
+    if(has(/shall not exceed|not exceed|aggregate liability|liability cap|cap on liability|limit(?:ation)? of liability|in no event[^.;]{0,250}(?:shall|will|must)[^.;]{0,180}exceed/) && !has(/fees?|charges?|amounts paid|amounts payable|twelve months|12 months|preceding 12 months|contract value/)) addDriver('Cap appears not clearly tied to fees, spend, or time period',2);
     if(!has(/indirect|consequential|special|incidental|punitive/)) addMissing('No exclusion for indirect / consequential damages detected',1);
     addFallback('Tie liability cap to fees paid or payable over an agreed period.');
     addFallback('Exclude indirect, consequential, incidental, and punitive losses.');
@@ -2277,6 +2277,12 @@ function computeClauseIntelligence(clause){
     if(!has(/reasonable notice|business hours|annual|once per year/)) addMissing('Audit rights lack clear procedural limits',1);
     addFallback('Limit audit scope, frequency, notice, and access mechanics.');
     addConsequence('Unbounded audit rights can create material operational and confidentiality burdens.');
+  } else if(type==='Warranty'){
+    if(has(/error[- ]free|uninterrupted|fit for (?:purpose|use)|all requirements|fault[- ]free|100\s*%|without\s+(?:any\s+)?(?:defects?|errors?)|free\s+(?:of|from)\s+(?:all\s+)?(?:defects?|errors?)/)) addDriver('Warranty language reads as absolute (error-free / uninterrupted / fit for purpose)',3);
+    if(!has(/remedy|cure|re-perform|repair|replace|refund/)) addMissing('No warranty remedy (cure/re-perform/refund) detected',1);
+    if(!has(/\d+\s*(?:day|month|year)s?/)) addMissing('No warranty duration detected',1);
+    addFallback('Qualify absolute warranty language and tie any breach to a defined cure or remedy period.');
+    addConsequence('An unqualified absolute warranty can create an uninsurable, open-ended performance guarantee.');
   }
 
   if(routes.length) addDriver(`Internal routing required: ${routes.join(', ')}`,1);
@@ -3971,10 +3977,9 @@ const REFERENCE_SEMANTIC_TOPICS=[
   ['audit',/\b(?:audit|inspect(?:ion)?|books and records)\b/i],
   ['dispute resolution',/\b(?:arbitration|jurisdiction|courts?|tribunal|venue)\b/i]
 ];
-function referenceSemanticTopic(text){
+function referenceSemanticTopics(text){
   const source=String(text||'');
-  const hits=REFERENCE_SEMANTIC_TOPICS.filter(([,regex])=>regex.test(source)).map(([topic])=>topic);
-  return hits.length===1?hits[0]:'';
+  return REFERENCE_SEMANTIC_TOPICS.filter(([,regex])=>regex.test(source)).map(([topic])=>topic);
 }
 function referenceContextSentence(text,reference){return splitIntoSentences(String(text||'')).find(sentence=>sentence.toLowerCase().includes(String(reference||'').toLowerCase()))||String(text||'').slice(0,420);}
 const MALFORMED_REFERENCE_CONTINUATION=/\b((?:Article|Paragraph|Para\.?|Part|Clause|Sub-?clause|Section|Subsection)\s+\d+(?:\.\d+)*)\s*[.,]?\s+(and|or)\s+(\d{1,2},\d{1,2})\b/gi;
@@ -3992,10 +3997,16 @@ function buildReferenceLedger(clauses){
       if(Array.isArray(indexed)){status='ambiguous';candidates=indexed.map(item=>item.id);}
       else if(indexed){status='valid';target=indexed;}
       else {target=resolveReferenceTarget(reference,list);if(target)status='valid';}
-      const sourceTopic=referenceSemanticTopic(context);
-      if(status==='valid'&&target&&sourceTopic&&/\b(?:under|pursuant to|in accordance with|subject to|as set out in|specified in)\b/i.test(context)){
-        const targetTopic=referenceSemanticTopic(`${target.heading||''} ${target.body||''}`);
-        if(targetTopic&&targetTopic!==sourceTopic)status='semantic-mismatch';
+      // A referring sentence or its target commonly touches more than one topic (the norm for real
+      // drafting, not the exception) -- collapsing to a single topic and skipping the check whenever
+      // either side is multi-topic silently disabled this safety net for most real references.
+      // Comparing topic *sets* for zero overlap instead still requires both sides to have some
+      // identified topic, keeping it conservative.
+      const sourceTopics=referenceSemanticTopics(context);
+      const sourceTopic=sourceTopics[0]||'';
+      if(status==='valid'&&target&&sourceTopics.length&&/\b(?:under|pursuant to|in accordance with|subject to|as set out in|specified in)\b/i.test(context)){
+        const targetTopics=referenceSemanticTopics(`${target.heading||''} ${target.body||''}`);
+        if(targetTopics.length&&!sourceTopics.some(topic=>targetTopics.includes(topic)))status='semantic-mismatch';
       }
       out.push({id:`xref:${clause.id}:${occurrence.start}:${norm}`,occurrenceIndex:index,sourceStart:occurrence.start,sourceEnd:occurrence.end,clauseId:clause.id,clauseLabel:clause.number||clause.heading||'',reference,normalizedReference:norm,status,targetClauseId:target?.id||'',targetClauseLabel:target?(target.number||target.heading||''):'',candidates,context,sourceTopic,confidence:status==='valid'?'High':status==='semantic-mismatch'?'Moderate':'High'});
     });
@@ -4215,7 +4226,7 @@ function extractCommercialTermsSummary(){
     renewal: pick(/(auto(?:matic)? renewal[^.\n]{0,80}|renew(?:al)? term[^.\n]{0,80}|renews? automatically[^.\n]{0,80}|mutual written agreement[^.\n]{0,40}renew)/i, m=>m[1].replace(/\s+/g,' ').trim()),
     terminationNotice: pick(/((?:terminate|termination)[^.\n]{0,80}?\b\d+\s+days?'?\s+(?:written\s+)?notice|\b\d+\s+days?'?\s+(?:written\s+)?notice[^.\n]{0,60}terminate)/i, m=>m[1].replace(/\s+/g,' ').trim()),
     paymentTerms: ranked(/([^\n.]{0,80}(?:payment\s+term|invoice|payable)[^\n.]{0,120}\b(?:[a-z]+\s*\()?\d+\)?\s+days?[^\n.]{0,80}|[^\n.]{0,60}\b(?:[a-z]+\s*\()?\d+\)?\s+days?[^\n.]{0,120}(?:invoice|payment|payable)[^\n.]{0,40})/gi,m=>/payment\s+term/i.test(m[0])?4:/invoice/i.test(m[0])?3:1),
-    liabilityCap: ranked(/([^\n.]{0,50}(?:liability|aggregate cap|financial liability)[^\n.]{0,220}(?:shall not exceed|limited to|capped at|maximum|percentage|%)[^\n.]{0,120})/gi,m=>/shall not exceed|capped at|limited to/i.test(m[0])?4:2),
+    liabilityCap: ranked(/([^\n.]{0,50}(?:liability|aggregate cap|financial liability)[^\n.]{0,220}(?:shall not exceed|limited to|capped at|maximum|percentage|%|exceed)[^\n.]{0,120})/gi,m=>/shall not exceed|capped at|limited to/i.test(m[0])?4:2),
     indemnityScope: ranked(/([^\n.]{0,40}(?:indemnify|indemnification|hold harmless)[^\n.]{0,220})/gi,m=>/third.part|claim|loss|damage/i.test(m[0])?3:1),
     ipOwnership: ranked(/([^\n.]{0,80}(?:intellectual property|background ip|work product|deliverables|ownership)[^\n.]{0,220}(?:vest(?:ed)? in|retain(?:s|ed)?|own(?:s|ed)?|assign(?:s|ed)?)[^\n.]{0,100}|[^\n.]{0,80}(?:vest(?:ed)? in|retain(?:s|ed)? ownership|shall own)[^\n.]{0,160}(?:intellectual property|work product|deliverables)[^\n.]{0,60})/gi,m=>/vest|shall own|retain/i.test(m[0])?4:2),
     governingLaw: pick(/(?:governed by the laws of|laws of)\s+([A-Za-z &]+)(?:[.,;\n]|\s+and)/i, m=>m[1].replace(/\s+/g,' ').trim()),

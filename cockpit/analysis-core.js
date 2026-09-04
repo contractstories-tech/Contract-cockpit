@@ -42,7 +42,13 @@
     const operativeAssertion = testPattern(operative, text);
     const placeholder = /\[(?:insert|tbd|tba|to be agreed|see\s+(?:schedule|annex|dpa)|applicable if)[^\]]*\]|\b(?:subject to|as set out in)\s+(?:a|the)\s+(?:future|applicable)\s+(?:dpa|schedule|annex)\b/i.test(text);
     const sentences = splitLegalSentences(text);
-    const negationPattern = new RegExp(`(?:\\b(?:nothing\\s+to\\s+do\\s+with|not\\s+related\\s+to|does\\s+not\\s+(?:address|concern|govern|submit|create|establish|agree)|do\\s+not\\s+(?:address|concern|govern|submit|create|establish|agree)|did\\s+not\\s+(?:agree|create|establish|accept)|shall\\s+not|must\\s+not|may\\s+not|will\\s+not|without|there\\s+is\\s+no|there\\s+shall\\s+be\\s+no|no)\\b[^.;]{0,120}(?:${mention.source})|(?:${mention.source})[^.;]{0,90}\\b(?:does\\s+not\\s+apply|is\\s+not\\s+(?:created|established|agreed|applicable)|shall\\s+not\\s+apply))`, 'i');
+    // The bare "no" alternative below is deliberately narrow: "in no event", "no later than" and
+    // "no less/more than" are common drafting idioms (frequently the exact phrasing that INTRODUCES
+    // a cap, deadline or threshold) rather than a negation of whatever concept keyword follows —
+    // treating them as negation was silently flipping "asserted" to false for real, affirmative
+    // clauses (e.g. "in no event shall liability exceed the fees paid" being read as negating
+    // "liability").
+    const negationPattern = new RegExp(`(?:\\b(?:nothing\\s+to\\s+do\\s+with|not\\s+related\\s+to|does\\s+not\\s+(?:address|concern|govern|submit|create|establish|agree)|do\\s+not\\s+(?:address|concern|govern|submit|create|establish|agree)|did\\s+not\\s+(?:agree|create|establish|accept)|shall\\s+not|must\\s+not|may\\s+not|will\\s+not|without|there\\s+is\\s+no|there\\s+shall\\s+be\\s+no|no(?!\\s+(?:event|later\\s+than|less\\s+than|more\\s+than)\\b))\\b[^.;]{0,120}(?:${mention.source})|(?:${mention.source})[^.;]{0,90}\\b(?:does\\s+not\\s+apply|is\\s+not\\s+(?:created|established|agreed|applicable)|shall\\s+not\\s+apply))`, 'i');
     const operativeSentences = sentences.filter(sentence => testPattern(operative, sentence));
     const affirmativeSentences = operativeSentences.filter(sentence => !testPattern(negationPattern, sentence));
     const negatedSentences = sentences.filter(sentence => testPattern(mention, sentence) && testPattern(negationPattern, sentence));
@@ -340,7 +346,7 @@
     const byConcept = {
       acceptance: [], changeControl: [], indemnity: [], liabilityCap: [], governingLaw: [], disputeResolution: [],
       termination: [], assignment: [], setOff: [], dataProtection: [], intellectualProperty: [],
-      serviceLevels: [], confidentiality: [], fees: [], audit: []
+      serviceLevels: [], confidentiality: [], fees: [], audit: [], warranty: []
     };
     const add = (concept, item) => {
       if (!item || !byConcept[concept]) return;
@@ -376,11 +382,25 @@
       else if (indemnityCrossReference) add('indemnity', makeConceptEvidence('indemnity', clause, 'cross-reference to indemnity', text, 'indemnity-cross-reference', 'Possible', { evidenceType: 'cross-reference' }));
       else if (indemnityHeading) add('indemnity', makeConceptEvidence('indemnity', clause, 'heading only', text, 'indemnity-heading', 'Possible', { evidenceType: 'heading-only' }));
 
+      // A common cap construction -- "In no event shall [a party's] liability ... exceed [amount]"
+      // -- carries no literal "cap"/"not exceed" phrase at all; the negation comes from "in no
+      // event", not from the word "not" sitting next to "exceed". Both the mention gate and the
+      // operative gate need a dedicated alternative for it, or this everyday drafting pattern is
+      // invisible to the concept detector, the playbook module it feeds, and the risk floor alike.
       const capAssertion = assessOperativeAssertion(text, {
-        mention:/\b(?:aggregate liability|liability cap|limitation of liability|cap(?:ped)?|shall not exceed|in excess of)\b/i,
-        operative:/\b(?:aggregate liability|liability)\b[^.;]{0,180}\b(?:shall not exceed|is limited to|will not exceed|is capped at|may apply only if)\b|\bcap\b[^.;]{0,120}\b(?:is|shall be|may apply)\b/i
+        mention:/\b(?:aggregate liability|liability cap|limitation of liability|cap(?:ped)?|shall not exceed|in excess of)\b|\bliabilit(?:y|ies)\b[^.;]{0,180}\bexceed\b/i,
+        operative:/\b(?:aggregate liability|liability)\b[^.;]{0,180}\b(?:shall not exceed|is limited to|will not exceed|is capped at|may apply only if)\b|\bcap\b[^.;]{0,120}\b(?:is|shall be|may apply)\b|\bin no event\b[^.;]{0,250}\bliabilit(?:y|ies)\b[^.;]{0,250}\bexceed\b|\bliabilit(?:y|ies)\b[^.;]{0,250}\bin no event\b[^.;]{0,180}\bexceed\b/i
       });
       if (capAssertion.asserted&&!/\b(?:no|not any)\s+(?:aggregate\s+)?liability cap\b|\bliability cap\b[^.;]{0,80}\b(?:is not|shall not be)\s+(?:created|established|agreed)\b/i.test(text)) add('liabilityCap', makeConceptEvidence('liabilityCap', clause, /may apply only if|only if expressly/i.test(text) ? 'conditional liability cap' : 'liability-cap architecture', text, /may apply only if|only if expressly/i.test(text) ? 'conditional-cap' : 'liability-cap', 'Strong', { assertionBasis: capAssertion.basis }));
+
+      const warrantyGrant = /\b(?:shall|will|does|hereby)\s+(?:represents?\s+and\s+)?warrants?\b|\bwarrants?\s+(?:and\s+represents?\s+)?that\b/i.test(text);
+      const warrantyDisclaimer = /\b(?:no\s+warrant(?:y|ies)|disclaims?\s+(?:all\s+)?warrant(?:y|ies)|without\s+(?:any\s+)?warrant(?:y|ies)|as[- ]is\b|makes?\s+no\s+warrant(?:y|ies))\b/i.test(text);
+      const warrantyHeading = /\bwarrant(?:y|ies)\b/i.test(String(clause.heading || ''));
+      if (warrantyGrant) {
+        const absolute = /\b(?:error[- ]free|uninterrupted|fit for (?:purpose|use)|all requirements|fault[- ]free|100\s*%|perfect(?:ly)?|guarantees?\s+(?:that|the)\b|without\s+(?:any\s+)?(?:defects?|errors?)|free\s+(?:of|from)\s+(?:all\s+)?(?:defects?|errors?)|merchantab(?:le|ility)|conforms?\s+(?:in all (?:material )?respects?\s+)?to\s+(?:the\s+)?specifications?)\b/i.test(text);
+        add('warranty', makeConceptEvidence('warranty', clause, absolute ? 'absolute/perfection warranty' : 'qualified warranty grant', text, absolute ? 'absolute-warranty' : 'operative-warranty-grant', absolute ? 'Strong' : 'Moderate', { evidenceType: 'operative-grant', facts: { absolute } }));
+      } else if (warrantyDisclaimer) add('warranty', makeConceptEvidence('warranty', clause, 'warranty disclaimer', text, 'warranty-disclaimer', 'Strong', { evidenceType: 'disclaimer' }));
+      else if (warrantyHeading) add('warranty', makeConceptEvidence('warranty', clause, 'heading only', text, 'warranty-heading', 'Possible', { evidenceType: 'heading-only' }));
 
       if (/\b(?:governed by(?: and construed in accordance with)? the laws of|governing law is|laws governing this agreement)\b/i.test(text)) {
         add('governingLaw', makeConceptEvidence('governingLaw', clause, 'choice of governing law', text, 'governing-law', 'Strong'));
@@ -456,15 +476,27 @@
       const sentences=bodyNoLabelRun.split(/(?<=[.!?;])\s+(?!(?:or|and|nor)\s+\([a-z0-9ivx]+\)\s)/i).map(clean).filter(Boolean);
       for(const sentence of sentences){
         actionPattern.lastIndex=0;const actionMatch=actionPattern.exec(sentence);
-        const riskAllocation=/\b(?:aggregate liability|liability cap|liable for|indemnif|hold harmless|shall not exceed|capped at|limitation of liability)\b/i.test(sentence);
+        const riskAllocation=/\b(?:aggregate liability|liability cap|liable for|indemnif|hold harmless|shall not exceed|capped at|limitation of liability)\b/i.test(sentence)||/\bin no event\b[^.;]{0,250}\bliabilit(?:y|ies)\b[^.;]{0,250}\bexceed\b|\bliabilit(?:y|ies)\b[^.;]{0,250}\bin no event\b[^.;]{0,180}\bexceed\b/i.test(sentence);
         if(!actionMatch||interpretivePattern.test(sentence)||riskAllocation)continue;
         const prefix=sentence.slice(0,actionMatch.index);actorPattern.lastIndex=0;let actorMatch=null;let candidate;
         const prepositionBeforeActor=/\b(?:of|by|from|under|with|on behalf of|behalf of|supervision of|authority of|instructions? of|direction of)\s*$/i;
         while((candidate=actorPattern.exec(prefix))!==null){const before=prefix.slice(Math.max(0,candidate.index-28),candidate.index);if(prepositionBeforeActor.test(before))continue;actorMatch=candidate;}
+        const verbTailForActor=sentence.slice(actionMatch.index+actionMatch[0].length);
+        if(!actorMatch){
+          // Passive voice ("X shall be provided BY the Supplier...") names its actor after the modal,
+          // not before it, so the prefix scan above finds nothing. Look for a "by [actor]" construct
+          // in the tail instead, scoped tightly to the passive marker to avoid attributing to an
+          // unrelated "by" phrase (e.g. "by the acceptance date").
+          actorPattern.lastIndex=0;let passiveCandidate;
+          while((passiveCandidate=actorPattern.exec(verbTailForActor))!==null){
+            const before=verbTailForActor.slice(Math.max(0,passiveCandidate.index-10),passiveCandidate.index);
+            if(/\bby\s+(?:the\s+)?$/i.test(before)){actorMatch=passiveCandidate;break;}
+          }
+        }
         const pronoun=prefix.match(/\b(it|they|such party|that party)\b[^.!?;]{0,80}$/i)?.[1]||'';
         if(!actorMatch&&!pronoun)continue;
         const actor=actorMatch?canonicalizeObligationParty(actorMatch[1],source):'Uncertain actor';
-        const verbTail=sentence.slice(actionMatch.index+actionMatch[0].length).trim();
+        const verbTail=verbTailForActor.trim();
         if(!verbTail||rightsNotDutyPattern.test(verbTail)||/^(?:be governed|prevail|control|be construed|mean|include)\b/i.test(verbTail))continue;
         const countdownAll=[
           ...sentence.matchAll(new RegExp(countdownPattern.source,countdownPattern.flags.includes('g')?countdownPattern.flags:`${countdownPattern.flags}g`)),
