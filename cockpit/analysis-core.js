@@ -92,11 +92,12 @@
           const start = match.index || 0;
           const end = index + 1 < actorMatches.length ? (actorMatches[index + 1].index || sentence.length) : sentence.length;
           const actorText = match[1];
+          const explicitOption=new RegExp(`\\b(?:at the option of|if so chosen by|as elected by)\\s+(?:the\\s+)?${esc(actorText)}\\b`,'i').test(sentence);
           const isPossessive = /^['’]s?\b/.test(sentence.slice(start+actorText.length, start+actorText.length+3));
-          if (isPossessive) continue;
+          const precededByPreposition = !explicitOption && /\b(?:of|by|from|under|with|on behalf of|behalf of|supervision of|authority of|instructions? of|direction of)\s*$/i.test(sentence.slice(Math.max(0,start-28),start));
+          if (isPossessive || precededByPreposition) continue;
           const segment = sentence.slice(start, end);
           const modality = segment.match(modalityPattern)?.[1] || '';
-          const explicitOption=new RegExp(`\\b(?:at the option of|if so chosen by|as elected by)\\s+(?:the\\s+)?${esc(actorText)}\\b`,'i').test(sentence);
           if ((!modality&&!explicitOption) || !category.action.test(sentence)) continue;
           const genericBoth = /^(?:Either Party|Each Party|Both Parties|The Parties)$/i.test(actorText);
           const actor = parties.find(p => [p.alias,p.name].some(v => String(v||'').toLowerCase() === actorText.toLowerCase()));
@@ -429,27 +430,30 @@
     ].filter(Boolean))].sort((a,b)=>b.length-a.length);
     const partyPattern = partyNames.map(v=>v.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');
     const actorPattern = new RegExp(`\\b(${partyPattern})\\b`, 'gi');
-    const actionPattern = /\b(shall not|must not|may not|agrees not to|is strictly prohibited from|shall|must|will|is required to|agrees to|undertakes to|is obliged to|covenants to|commits to|shall ensure|shall cause|is responsible for)\b/gi;
-    const countdownPattern = /\b(within\s+(?:(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|thirty|forty-five|sixty|ninety|\d+(?:\s+\d+)?)(?:\s*\((?:\d+|[a-z]+(?:-[a-z]+)*)\))?\s+)(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)(?:\s+(?:after|before|from|of|following)\s+[^.;,]+)?|(?:a\s+)?period\s+of\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:days?|weeks?|months?|years?)\s+(?:after|before|from|following)\s+[^.;,]+|not\s+less\s+than\s+(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)\s+prior|(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*days?['’]?\s+notice|no later than\s+(?:\d+(?:\s*\((?:\d+|[a-z]+(?:-[a-z]+)*)\))?\s+)?(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)(?:\s+(?:after|before|from|of)\s+[^.;,]+)?|on or before\s+[^.;,]+|by\s+[A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})\b/i;
+    const actionPattern = /\b(shall not|must not|may not|agrees not to|is strictly prohibited from|shall|must|will|is required to|agrees to|undertakes to|is obliged to|covenants to|commits to|shall ensure|shall cause|is responsible for|may|is entitled to|has the right to)\b/gi;
+    const countdownPattern = /\b(within\s+(?:(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|thirty|forty-five|sixty|ninety|\d+(?:\s+\d+)?)(?:\s*\((?:\d+|[a-z]+(?:-[a-z]+)*)\))?\s+)(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)(?:\s+(?:after|before|from|of|following)\s+[^.;,]+)?|(?:a\s+)?period\s+of\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:days?|weeks?|months?|years?)\s+(?:after|before|from|following)\s+[^.;,]+|not\s+less\s+than\s+(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)\s+prior|(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*days?['’]?\s+(?:written\s+|prior\s+|advance\s+)?notice|(?:more|less)\s+than\s+(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)|no later than\s+(?:\d+(?:\s*\((?:\d+|[a-z]+(?:-[a-z]+)*)\))?\s+)?(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)(?:\s+(?:after|before|from|of)\s+[^.;,]+)?|on or before\s+[^.;,]+|by\s+[A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})\b/i;
     const recurringPattern = /\b(?:daily|weekly|monthly|quarterly|annually|each\s+(?:day|week|month|quarter|year)|every\s+\d+\s+(?:days?|weeks?|months?))\b/i;
     const promptnessPattern = /\b(promptly|immediately|without undue delay|as soon as reasonably practicable)\b/i;
     const interpretivePattern = /\b(?:shall (?:solely )?be governed|shall prevail|shall control|shall be construed|shall be deemed|shall mean|shall include|in case of (?:conflict|discrepancy)|order of precedence|governing law|contractual relationship)\b/i;
     const records=[];const seen=new Set();
     for(const clause of clauses||[]){
-      const sentences=String(clause.body||'').replace(/\n+/g,' ').split(/(?<=[.!?;])\s+/).map(clean).filter(Boolean);
+      const bodyNoLabelRun=String(clause.body||'').replace(/\n+/g,' ').replace(/^(?:[A-Z][A-Za-z0-9 #()\/.,'-]{0,40}:\s*(?:\|\s*)?){2,}/,'');
+      const sentences=bodyNoLabelRun.split(/(?<=[.!?;])\s+(?!(?:or|and|nor)\s+\([a-z0-9ivx]+\)\s)/i).map(clean).filter(Boolean);
       for(const sentence of sentences){
         actionPattern.lastIndex=0;const actionMatch=actionPattern.exec(sentence);
         const riskAllocation=/\b(?:aggregate liability|liability cap|liable for|indemnif|hold harmless|shall not exceed|capped at|limitation of liability)\b/i.test(sentence);
         if(!actionMatch||interpretivePattern.test(sentence)||riskAllocation)continue;
         const prefix=sentence.slice(0,actionMatch.index);actorPattern.lastIndex=0;let actorMatch=null;let candidate;
-        const prepositionBeforeActor=/\b(?:of|by|from|under|on behalf of|behalf of|supervision of|authority of|instructions? of|direction of)\s*$/i;
+        const prepositionBeforeActor=/\b(?:of|by|from|under|with|on behalf of|behalf of|supervision of|authority of|instructions? of|direction of)\s*$/i;
         while((candidate=actorPattern.exec(prefix))!==null){const before=prefix.slice(Math.max(0,candidate.index-28),candidate.index);if(prepositionBeforeActor.test(before))continue;actorMatch=candidate;}
         const pronoun=prefix.match(/\b(it|they|such party|that party)\b[^.!?;]{0,80}$/i)?.[1]||'';
         if(!actorMatch&&!pronoun)continue;
         const actor=actorMatch?canonicalizeObligationParty(actorMatch[1],source):'Uncertain actor';
         const verbTail=sentence.slice(actionMatch.index+actionMatch[0].length).trim();
         if(!verbTail||/^(?:be governed|prevail|control|be construed|mean|include)\b/i.test(verbTail))continue;
-        const countdown=sentence.match(countdownPattern)?.[0]||'';
+        const countdownAll=[...sentence.matchAll(new RegExp(countdownPattern.source,countdownPattern.flags.includes('g')?countdownPattern.flags:`${countdownPattern.flags}g`))].map(m=>m[0]);
+        const countdown=countdownAll[0]||'';
+        const countdownSummary=[...new Set(countdownAll)].join('; ');
         const promptness=sentence.match(promptnessPattern)?.[0]||'';const recurring=sentence.match(recurringPattern)?.[0]||'';
         const condition=prefix.match(/\b(?:if|where|when|provided that|unless|should)\b[^.!?;]{0,260}$/i)?.[0]||'';
         const absoluteDate=/\b(?:on or before|by)\s+[A-Z][a-z]+\s+\d{1,2}/i.test(countdown);
@@ -458,7 +462,7 @@
         const key=`${clause.id}:${actor.toLowerCase()}:${clean(sentence).toLowerCase()}`;if(seen.has(key))continue;seen.add(key);
         records.push({
           id:`obl-${clause.id}-${records.length+1}`,clauseId:clause.id,clauseLabel:clause.number||clause.heading,
-          party:actor,actorConfidence:actorMatch?'High':'Low',action:sentence,actionObject:excerpt(verbTail,220),deadline:countdown,
+          party:actor,actorConfidence:actorMatch?'High':'Low',action:sentence,actionObject:excerpt(verbTail,220),deadline:countdownSummary||countdown,
           condition:clean(condition),triggerDescription:clean(trigger),deadlineKind,relativeDeadline:!!countdown&&!absoluteDate,
           waitingForTrigger:!!countdown&&!absoluteDate, timingCharacterization:countdown?(absoluteDate?'calendar date':'duration awaiting trigger'):recurring||promptness,calendarable:!!absoluteDate,topic:clause.type||'General',
           confidence:actorMatch&&(countdown||/\b(?:must|is required to|undertakes to|shall|shall not)\b/i.test(actionMatch[0]))?'High':actorMatch?'Medium':'Low',
