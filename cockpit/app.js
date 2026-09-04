@@ -606,7 +606,7 @@ const NEGOTIATION_POSITION_OPTIONS = ['','Acceptable','Accept with changes','See
 const REVIEW_STATUS_OPTIONS = ['','Not reviewed','In review','Reviewed','Escalated'];
 const NEGOTIATION_STATUS_OPTIONS = ['','Open','In negotiation','Agreed','Parked','Rejected'];
 const REVIEW_STATUS_ICONS = {'Reviewed':'✓','In review':'◑','Escalated':'⚡','Not reviewed':''};
-const POSITION_COLORS = {'Acceptable':'var(--risk-low)','Accept with changes':'var(--risk-info)','Seek amendment':'var(--risk-med)','Reject':'var(--risk-high)','Escalate':'var(--risk-high)','Need input':'var(--risk-info)'};
+const POSITION_COLORS = {'Acceptable':'var(--risk-low)','Accept with changes':'var(--risk-info)','Seek amendment':'var(--risk-med)','Reject':'var(--risk-high)','Escalate':'var(--state-uncertain,#7656a3)','Need input':'var(--risk-info)'};
 
 /* -- State -- */
 const state = {
@@ -697,6 +697,7 @@ reviewabilityOverrides:{},
 clauseAudienceSharing:{},
 verificationByKey:{},
 focusMode:false,
+decisionFocus:false,
 navigatorBeforeFocus:'outline',
 startIntent:'checks',
 preferredStartCheck:'review-items',
@@ -810,6 +811,8 @@ showLandingBtn:document.getElementById('showLandingBtn'),
 hubBtn:document.getElementById('hubBtn'),
 matterBtn:document.getElementById('matterBtn'),
 readingModeBtn:document.getElementById('readingModeBtn'),
+decisionFocusBtn:document.getElementById('decisionFocusBtn'),
+decisionFocusBar:document.getElementById('decisionFocusBar'),
 printViewBtn:document.getElementById('printViewBtn'),
 checksWorkspace:document.getElementById('checksWorkspace'),
 resolveWorkspace:document.getElementById('resolveWorkspace'),
@@ -2714,9 +2717,47 @@ try{localStorage.setItem(ONBOARDED_KEY,'1');}catch{}
 }
 
 /* -- Focus mode -- */
-function toggleFocusMode(force){const next=typeof force==='boolean'?force:!state.focusMode;if(next&&getActiveWorkflowStage()==='intake')setWorkflowStage('decide',{preserveTab:true});state.focusMode=next;applyFocusMode();renderClauseView();saveSessionReturn();}
+function toggleFocusMode(force){const next=typeof force==='boolean'?force:!state.focusMode;if(next&&getActiveWorkflowStage()==='intake')setWorkflowStage('decide',{preserveTab:true});if(next&&state.decisionFocus){state.decisionFocus=false;applyDecisionFocus();}state.focusMode=next;applyFocusMode();renderClauseView();saveSessionReturn();}
 function applyFocusMode(){if(!els.app)return;els.app.classList.toggle('focus-mode',!!state.focusMode);if(els.hubToggleFocusBtn){els.hubToggleFocusBtn.textContent=state.focusMode?'Exit reading mode':'Reading mode';els.hubToggleFocusBtn.classList.toggle('active',!!state.focusMode);}if(els.readingModeBtn){els.readingModeBtn.textContent=state.focusMode?'Exit reading':'Read';els.readingModeBtn.classList.toggle('active',!!state.focusMode);els.readingModeBtn.setAttribute('aria-pressed',state.focusMode?'true':'false');}updateMobileUI();}
 
+/* -- Decision focus mode: one clause, decision bar only, no side panels -- */
+function toggleDecisionFocus(force){
+  const next=typeof force==='boolean'?force:!state.decisionFocus;
+  if(next){
+    if(getActiveWorkflowStage()!=='decide')setWorkflowStage('decide',{preserveTab:true});
+    if(state.focusMode)state.focusMode=false;
+  }
+  state.decisionFocus=next;
+  applyDecisionFocus();
+  renderClauseView();
+  saveSessionReturn();
+}
+function applyDecisionFocus(){
+  if(!els.app)return;
+  els.app.classList.toggle('decision-focus-mode',!!state.decisionFocus);
+  if(els.decisionFocusBtn){
+    els.decisionFocusBtn.textContent=state.decisionFocus?'Exit focus':'Focus';
+    els.decisionFocusBtn.classList.toggle('active',!!state.decisionFocus);
+    els.decisionFocusBtn.setAttribute('aria-pressed',state.decisionFocus?'true':'false');
+  }
+  updateMobileUI();
+}
+function renderDecisionFocusBar(){
+  if(!els.decisionFocusBar)return;
+  const cid=state.selectedClauseId;
+  if(!state.decisionFocus||state.focusMode||!cid||cid===OVERVIEW_ID){
+    els.decisionFocusBar.classList.add('hidden');
+    els.decisionFocusBar.innerHTML='';
+    return;
+  }
+  const ids=getReviewableClauses().map(c=>c.id);
+  const idx=ids.indexOf(cid);
+  const remaining=ids.filter(id=>!getClauseDecision(id).type).length;
+  const prevId=idx>0?ids[idx-1]:'';
+  const nextId=(idx>=0&&idx<ids.length-1)?ids[idx+1]:'';
+  els.decisionFocusBar.classList.remove('hidden');
+  els.decisionFocusBar.innerHTML=`<span class="decision-focus-progress">Clause ${idx>=0?idx+1:'?'} of ${ids.length} · ${remaining} remaining need a decision</span><span class="decision-focus-nav"><button type="button" class="link-btn" data-decision-focus-target="${escapeHtml(prevId)}" ${prevId?'':'disabled'}>← Previous</button><button type="button" class="link-btn" data-decision-focus-target="${escapeHtml(nextId)}" ${nextId?'':'disabled'}>Next →</button></span>`;
+}
 
 /* removed duplicate legacy definition: setWorkflowMode */
 /* removed duplicate legacy definition: updateWorkflowModeUI */
@@ -2845,6 +2886,8 @@ els.loadSampleBtn.addEventListener('click', async () => {
 document.querySelectorAll('[data-start-intent]').forEach(btn=>btn.addEventListener('click',()=>{state.startIntent=btn.dataset.startIntent||'checks';document.querySelectorAll('[data-start-intent]').forEach(item=>item.classList.toggle('active',item===btn));const picker=document.querySelector('.focused-start-picker');if(picker)picker.hidden=state.startIntent!=='checks';}));
 document.getElementById('focusedStartCheck')?.addEventListener('change',e=>{state.preferredStartCheck=e.target.value||'review-items';state.startIntent='checks';document.querySelectorAll('[data-start-intent]').forEach(item=>item.classList.toggle('active',item.dataset.startIntent==='checks'));});
 els.readingModeBtn?.addEventListener('click',()=>toggleFocusMode());
+els.decisionFocusBtn?.addEventListener('click',()=>toggleDecisionFocus());
+els.decisionFocusBar?.addEventListener('click',e=>{const btn=e.target.closest('[data-decision-focus-target]');if(!btn||btn.disabled)return;const id=btn.dataset.decisionFocusTarget;if(id)jumpToClause(id);});
 els.printViewBtn?.addEventListener('click',()=>window.print());
 els.checksWorkspace?.addEventListener('click',e=>{
   const open=e.target.closest('[data-open-check]');if(open){state.activeCheck=open.dataset.openCheck||'';state.activeConcept='';state.activeTermFilter='';state.checkFilter='all';renderChecksWorkspace();saveSessionReturn();return;}
@@ -3388,6 +3431,7 @@ if(e.key==='Escape' && document.querySelector('.modal-overlay:not(.hidden)')){e.
 if(document.querySelector('.modal-overlay:not(.hidden)'))return;
 const tgt=e.target;const tag=tgt?.tagName||'';const isTyping=tgt?.isContentEditable||['INPUT','TEXTAREA','SELECT'].includes(tag);
 if(e.key==='Escape'&&state.focusMode){toggleFocusMode(false);hideTermTooltip();return;}
+if(e.key==='Escape'&&state.decisionFocus){toggleDecisionFocus(false);hideTermTooltip();return;}
 if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='f'){e.preventDefault();els.searchInput?.focus();els.searchInput?.select?.();return;}
 if(e.key.toLowerCase()==='f'&&!isTyping){e.preventDefault();toggleFocusMode();return;}
 if(e.key==='Escape'){closeSidePeek();return;}
@@ -3636,7 +3680,7 @@ state.draftingOpenClauseIds={};state.clauseCompareMode={};state.positionHistory=
 state.resolvedPlaceholderIds=[];state.ignoredPlaceholderIds=[];state.reviewabilityOverrides={};state.clauseAudienceSharing={};state.verificationByKey={};state.selectedClauseId=null;state.searchQuery='';state.activeTermFilter='';state.executionMode=false;state.executedAt='';state.clauseTimeSpent={};state.clauseOpenedAt=null;state.analyzing=false;state._activeTimerClauseId=null;
 state.filters={content:'all',review:'all'};state.activeTab='summary';
 state.noteFormOpen=false;state.noteDraft=null;state.sessionRestored=false;state.snapshotNotice='';
-state.notesView='clause';state.termsView='all';state.refsView='all';state.focusMode=false;
+state.notesView='clause';state.termsView='all';state.refsView='all';state.focusMode=false;state.decisionFocus=false;
 state.startIntent='checks';state.preferredStartCheck='review-items';state.activeCheck='';state.activeConcept='';state.checkFilter='all';state.checkCompletion={};state.findingReview={};
 state.negotiationContextOpen={};state.dismissedDraftingNudges={};state.clauseBriefOpenIds={};
 pendingDecisionAutoAdvance.clear();
@@ -4999,6 +5043,7 @@ return;
 }
 state.pendingClauseViewRender=false;
 closeSidePeek();
+renderDecisionFocusBar();
 if(state.focusMode){renderScopeBar(null);renderBreadcrumbBar(null);els.emptyState.classList.add('hidden');els.clauseView.classList.remove('hidden');els.clauseView.innerHTML=renderReadingDocument();bindTermChipInteractions(els.clauseView);return;}
 if(state.selectedClauseId===OVERVIEW_ID){
 renderScopeBar(null); renderBreadcrumbBar(null);
@@ -6167,7 +6212,7 @@ state.filters=saved.filters&&typeof saved.filters==='object'?{content:saved.filt
 state.activeTab=TAB_IDS.includes(saved.activeTab)?saved.activeTab:'summary';
 state.resolvedPlaceholderIds=Array.isArray(saved.resolvedPlaceholderIds)?saved.resolvedPlaceholderIds:[];
 state.noteDraft=saved.noteDraft&&typeof saved.noteDraft==='object'?{...makeEmptyNoteDraft(saved.noteDraft.clauseId||''),...saved.noteDraft}:null;
-state.noteFormOpen=!!state.noteDraft;state.focusMode=false;applyFocusMode();
+state.noteFormOpen=!!state.noteDraft;state.focusMode=false;state.decisionFocus=false;applyFocusMode();applyDecisionFocus();
 syncPlaceholderResolution();state.sessionRestored=true;
 if(els.contractTypeSelect){const rev={'SaaS Agreement':'SaaS Agreement','Technology License':'Technology License','DPA':'DPA','DPDP DPA':'DPDP DPA','Custom':'Custom','IT/ITES Outsourcing':'IT/ITES Outsourcing','Staff Augmentation':'Staff Augmentation','Lease':'Lease'};els.contractTypeSelect.value=rev[state.contractType||'Custom']||(state.contractType||'Custom');}
 if(!state.selectedClauseId&&state.clauses[0])state.selectedClauseId=OVERVIEW_ID;
