@@ -940,7 +940,6 @@ libraryFallbackPositionInput:document.getElementById('libraryFallbackPositionInp
 libraryNegotiatingPointsInput:document.getElementById('libraryNegotiatingPointsInput'),
 libraryTextInput:document.getElementById('libraryTextInput'),
 cancelLibraryModalBtn:document.getElementById('cancelLibraryModalBtn'),
-reviewProgressMount:document.getElementById('reviewProgressMount'),
 outlineModeBtn:document.getElementById('outlineModeBtn'),
 triageModeBtn:document.getElementById('triageModeBtn'),
 libraryImportInput:document.getElementById('libraryImportInput'),
@@ -3765,11 +3764,18 @@ const h=String(heading||'').trim();const n=String(number||'').trim();
 if(!h)return true;if(/^(schedule|annex|annexure|exhibit|appendix|article|section|clause)/i.test(n))return true;
 if(isAdministrativeLine(h))return false;
 const w=h.split(/\s+/).filter(Boolean);if(!w.length||w.length>10)return false;
-if(/,/.test(h)&&/(road|street|avenue|drive|lane|boulevard|blvd|court|way|po box|suite|floor|building|sector|district contract|email|attn|phone)/i.test(h))return false;
+// Street-address words only disqualify a heading when the address IS the heading (e.g. a lone
+// "221B Baker Street, London" line, itself mis-parsed as clause number "221B") — i.e. the address word
+// shows up in the first few tokens. A genuine numbered clause like "16. Notices — Registered Office,
+// 221B Baker Street, London" states its heading first and only mentions the street name well into a
+// longer line; penalising that on the same textual grounds would make the "Notices" clause vanish.
+const addressWordIndex=w.findIndex(x=>/^(?:road|street|avenue|drive|lane|boulevard|blvd|court|way|building)$/i.test(x.replace(/[.,]$/,'')));
+if(addressWordIndex>=0&&addressWordIndex<=2)return false;
+if(/,/.test(h)&&/(po box|suite|floor|sector|district contract|email|attn|phone)/i.test(h))return false;
 if(/^[A-Z]{3,80}$/.test(h)&&w.length>=2&&w.length<=6)return true;
 if(/\b(shall|must|will|may|should|within|before|after|unless|provided|where|when|because|include|includes|means)\b/i.test(h))return false;
 if(/^(the|a|an|if|when|while|supplier|client|each|either|party|parties|district|vendor)\b/i.test(h))return false;
-if(/(road|street|avenue|drive|lane|boulevard|blvd|court|way|email|attn|phone|california|district contract)/i.test(h))return false;
+if(addressWordIndex<0&&/(email|attn|phone|california|district contract)/i.test(h))return false;
 const uc=w.filter(x=>/^[A-Z]/.test(x)).length;return uc>=Math.max(1,Math.ceil(w.length/2));
 }
 function isOperativeStyledParagraph(text, parsed){
@@ -5433,7 +5439,8 @@ const seekC=posC['Seek amendment']||0;const rejectC=posC['Reject']||0;const escC
 const signing=computeSigningReadinessChecks();
 const topItems=getStrategyFilteredClauses().slice().sort((a,b)=>riskWeight(state.clauseRiskScores?.[b.id]||'Low')-riskWeight(state.clauseRiskScores?.[a.id]||'Low')).slice(0,8);
 
-els.summaryPanel.innerHTML=`<div class="panel-subhead">Overview</div>
+els.summaryPanel.innerHTML=`<div id="reviewProgressMount"></div>
+<div class="panel-subhead">Overview</div>
 ${state.workflowMode==='outputs'?'<div class="tool-card info"><div class="mini">Outputs mode is active. Use the Export card or the Export button in the header to generate negotiation and approval packs.</div><div class="card-actions"><button id="copyApprovalPackFromSummaryBtn" type="button">Copy approval pack</button><button id="exportApprovalPackFromSummaryBtn" type="button">Export approval pack</button></div></div>':''}
 ${renderNextBestActionCard()}
 ${state.executionMode ? buildUpcomingObligationsCard() : ''}
@@ -5528,6 +5535,7 @@ els.summaryPanel.querySelector('#openTimelineSubBtn')?.addEventListener('click',
 els.summaryPanel.querySelector('#exportObligationsSheetBtn')?.addEventListener('click',exportObligationsCsv);
 els.summaryPanel.querySelector('#copyDocxHygieneChecklistBtn')?.addEventListener('click',()=>copyTextToClipboard(formatDocxHygieneChecklist(),'Checklist copied'));
 els.summaryPanel.querySelector('#openExportHubFromDocxBtn')?.addEventListener('click',openExportHubModal);
+renderReviewProgressMount();
 }
 
 function renderMatterForm(){
@@ -7294,12 +7302,30 @@ function updateCockpitCollapseUI() {
   if (btn) btn.textContent = collapsed ? '▸' : '▾';
 }
 
+// Queried live and called both here and at the end of renderSummaryPanel(), because
+// renderSummaryPanel() replaces tab-summary's entire innerHTML — recreating this mount node
+// (empty) each time — so a cached reference goes stale, and the mount needs repopulating
+// right after every recreation rather than waiting on the next unrelated renderHeader() call.
+function renderReviewProgressMount(){
+  const reviewProgressMount = document.getElementById('reviewProgressMount');
+  if (!reviewProgressMount) return;
+  if (state.clauses.length) {
+    const _reviewable = getReviewableClauses();
+    const _reviewed = _reviewable.filter(c => (state.clauseReviewStatus?.[c.id] || '') === 'Reviewed').length;
+    const _total = _reviewable.length;
+    const _pct = _total ? Math.round((_reviewed / _total) * 100) : 0;
+    reviewProgressMount.innerHTML = `<div class="review-progress" title="A separate, lawyer-set status distinct from &quot;decided&quot; above: mark a clause Reviewed from its review-status control once you consider it fully checked, whether or not it also required a decision."><div class="review-progress-bar" style="width:${_pct}%"></div><span class="review-progress-label">${_reviewed}/${_total} reviewed</span></div>`;
+  } else {
+    reviewProgressMount.innerHTML = '';
+  }
+}
 function renderHeader(){
   renderAnnunciatorPanel(); updateWorkspaceControls(); recomputeOpenLoops();
   els.docName.textContent=state.documentMeta.fileName||'Untitled';
   const ready=state.readiness||{status:'blocked',blockers:[],decidedCount:0,totalCount:0};
   const base=`${getReviewableClauses().length} reviewable clauses • ${countFlags()} signals • ${ready.decidedCount||0}/${ready.totalCount||0} decided • ${(state.openLoops||[]).length} open loops`;
   els.docMeta.textContent=state.snapshotNotice?`${base} • ${state.snapshotNotice}`:base;
+  els.docMeta.title='Reviewable clauses: clauses that can carry a legal decision, excluding titles, signatures and bare section headings. Signals: findings detected across every check. Decided: clauses where a legal decision has been recorded, out of those that need one. Open loops: decisions still missing a required fallback, route, owner or approval.';
   renderMinimapRail();
   if(els.autosaveStatus){
     const label = state.prefs?.disableAutosave ? 'Autosave off' : (state.autosaveFailed ? 'Autosave failed' : (state.autosavePending ? 'Saving…' : (state.autosaveLastSavedAt ? `Saved ${formatShortTime(state.autosaveLastSavedAt)}` : 'Autosave ready')));
@@ -7307,17 +7333,7 @@ function renderHeader(){
     els.autosaveStatus.classList.toggle('warn', !!state.autosaveFailed);
     els.autosaveStatus.classList.toggle('muted', !!state.prefs?.disableAutosave);
   }
-  if (els.reviewProgressMount) {
-  if (state.clauses.length) {
-    const _reviewable = getReviewableClauses();
-    const _reviewed = _reviewable.filter(c => (state.clauseReviewStatus?.[c.id] || '') === 'Reviewed').length;
-    const _total = _reviewable.length;
-    const _pct = _total ? Math.round((_reviewed / _total) * 100) : 0;
-    els.reviewProgressMount.innerHTML = `<div class="review-progress"><div class="review-progress-bar" style="width:${_pct}%"></div><span class="review-progress-label">${_reviewed}/${_total} reviewed</span></div>`;
-  } else {
-    els.reviewProgressMount.innerHTML = '';
-  }
-}
+  renderReviewProgressMount();
   renderQueueBar();
   updateLocalHeaderIndicator();
   updateCockpitCollapseUI();
