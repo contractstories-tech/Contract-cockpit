@@ -477,6 +477,7 @@ body.resizing-panel iframe, body.resizing-panel .workspace * { pointer-events: n
 .decision-chip.active{background:var(--accent-light);border-color:var(--accent);color:var(--accent);}
 .decision-card-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
 .decision-pill{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;background:var(--badge-bg);color:var(--badge-text);font-size:.72rem;font-weight:700;}
+.decision-dependency-badge{display:inline-flex;align-items:center;margin-left:8px;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--risk-med) 16%,var(--bg-card));color:var(--risk-med);font-size:.68rem;font-weight:700;vertical-align:middle;}
 .decision-required-list{margin:8px 0 0;padding-left:18px;color:var(--risk-high);font-size:.76rem;}
 .decision-helper{margin-top:8px;color:var(--text-muted);font-size:.76rem;}
 .ready-light.ready-blocked{border-color:var(--risk-high);color:var(--risk-high);}

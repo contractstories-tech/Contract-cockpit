@@ -1963,8 +1963,8 @@ function getClauseCompletionState(cid){
   const sourceVerified=!needsDecision||state.verificationByKey?.[`clause-source-${cid}`]==='confirmed';
   const reviewComplete=decisionComplete&&sourceVerified;
   const approvalStatus=String(state.clauseApprovalStatus?.[cid]||decision.approvalStatus||'');
-  const approvalResolved=decision.type!=='escalate'||approvalStatus==='Approved';
-  const inputResolved=decision.type!=='need-input';
+  const approvalResolved=decision.dependency!=='escalate'||approvalStatus==='Approved';
+  const inputResolved=decision.dependency!=='need-input';
   const negotiationStatus=state.clauseNegotiationStatus?.[cid]||deriveNegotiationStatus(cid)||'';
   const negotiationRequired=['accept-with-changes','seek-amendment','reject'].includes(decision.type);
   const negotiationResolved=!negotiationRequired||negotiationStatus==='Agreed'||decision.status==='Agreed';
@@ -4550,7 +4550,7 @@ function renderContextualPlaybookCard(clause){
   return `<section class="playbook-inline-alert"><div><span class="mini-label">Playbook alert · verify</span><strong>${escapeHtml(match.module.id)} · ${escapeHtml(match.module.title)}</strong><p>${match.deviations.slice(0,2).map(item=>escapeHtml(item.label)).join(' · ')}</p></div><button class="btn btn-xs" type="button" data-action="open-playbook-guidance">Review guidance →</button></section>`;
 }
 function renderPlaybookLanguageDiff(module,clause){
-  const sample=String(module?.sampleLanguage||'').trim();const current=String(clause?.body||'').trim();const decision=getClauseDecision(clause?.id);const selected=getClausePlaybookSelection(clause?.id);const selectedRung=(module?.fallbackLadder||[]).find(item=>item.rung===selected.selectedRung);const needsApproval=!!selectedRung?.approvalRequired;const approvalReady=!needsApproval||decision.approvalStatus==='Approved';const conditionsReady=!!String(decision.rationale||'').trim()&&!!String(decision.fallback||state.clauseFallbacks?.[clause?.id]||'').trim();const posture=['reject','escalate'].includes(decision.type)||selectedRung?.escalationOnly?'Protect':needsApproval?'Pre-clear':decision.type==='accept'?'Can trade':'Review before trade';const linked=[...(module?.interactionPoints||[]).map(item=>item.moduleId),...(module?.relatedModules||[])].filter(Boolean);const guardrail=`<section class="playbook-ambient-guardrail"><div class="mini-label">A-00 ambient trade guardrail</div><strong>${escapeHtml(posture)}</strong><div class="mini">Conditions ${conditionsReady?'captured':'open'} · Approval ${approvalReady?'ready':'required'}${linked.length?` · Recheck ${linked.slice(0,4).map(escapeHtml).join(', ')}`:''}</div>${needsApproval&&!approvalReady?`<p class="mini">This rung is drafting-prepared, not available to offer. Required: ${escapeHtml(selectedRung.approver||'named approval')}.</p>`:''}</section>`;
+  const sample=String(module?.sampleLanguage||'').trim();const current=String(clause?.body||'').trim();const decision=getClauseDecision(clause?.id);const selected=getClausePlaybookSelection(clause?.id);const selectedRung=(module?.fallbackLadder||[]).find(item=>item.rung===selected.selectedRung);const needsApproval=!!selectedRung?.approvalRequired;const approvalReady=!needsApproval||decision.approvalStatus==='Approved';const conditionsReady=!!String(decision.rationale||'').trim()&&!!String(decision.fallback||state.clauseFallbacks?.[clause?.id]||'').trim();const posture=decision.type==='reject'||decision.dependency==='escalate'||selectedRung?.escalationOnly?'Protect':needsApproval?'Pre-clear':decision.type==='accept'?'Can trade':'Review before trade';const linked=[...(module?.interactionPoints||[]).map(item=>item.moduleId),...(module?.relatedModules||[])].filter(Boolean);const guardrail=`<section class="playbook-ambient-guardrail"><div class="mini-label">A-00 ambient trade guardrail</div><strong>${escapeHtml(posture)}</strong><div class="mini">Conditions ${conditionsReady?'captured':'open'} · Approval ${approvalReady?'ready':'required'}${linked.length?` · Recheck ${linked.slice(0,4).map(escapeHtml).join(', ')}`:''}</div>${needsApproval&&!approvalReady?`<p class="mini">This rung is drafting-prepared, not available to offer. Required: ${escapeHtml(selectedRung.approver||'named approval')}.</p>`:''}</section>`;
   if(!sample||!current)return guardrail;
   const html=wordDiffTokens(current,sample).map(part=>part.type==='equal'?escapeHtml(part.text):part.type==='delete'?`<del>${escapeHtml(part.text)}</del>`:`<ins>${escapeHtml(part.text)}</ins>`).join('');
   return `${guardrail}<details class="playbook-language-diff"><summary>Drafting aid · compare with playbook sample</summary><div class="mini">Removed from the current clause is struck through; playbook sample wording is highlighted. This is ready to copy as a starting clause, not an automatic or tracked redline.</div><div class="redline-output">${html}</div><div class="card-actions"><button class="btn btn-xs" type="button" data-guidance-copy-sample data-module-id="${escapeHtml(module.id)}">Copy suggested clause</button></div></details>`;
@@ -4571,7 +4571,7 @@ function openPlaybookGuidance(clauseId,moduleId=''){
 function openPlaybookDecisionPreview(cid,moduleId,rungId){
   const pkg=getActivePlaybookPackage();const module=pkg?.modules?.find(item=>item.id===moduleId);const rung=module?.fallbackLadder?.find(item=>item.rung===rungId);if(!module||!rung)return;
   const current=getClauseDecision(cid);const proposedType=rung.recommendedDecision||'seek-amendment';pendingPlaybookDecisionPreview={cid,moduleId,rungId};
-  els.playbookDecisionPreviewBody.innerHTML=`<div class="preview-diff-grid"><div class="tool-card compact"><div class="mini-label">Current</div><p><strong>Decision:</strong> ${escapeHtml(mapDecisionTypeToLegacyPosition(current.type)||'Not set')}</p><p><strong>Fallback:</strong> ${escapeHtml(current.fallback||'Not set')}</p><p><strong>Route:</strong> ${escapeHtml(current.route||'Not set')}</p></div><div class="tool-card compact"><div class="mini-label">Proposed from ${escapeHtml(module.id)} · ${escapeHtml(rung.label||rung.rung)}</div><p><strong>Decision:</strong> ${escapeHtml(mapDecisionTypeToLegacyPosition(proposedType))}</p><p><strong>Fallback:</strong> ${escapeHtml(rung.position||'')}</p><p><strong>Route:</strong> ${escapeHtml(proposedType==='escalate'?'Escalate to Leadership':(current.route||'Legal Only'))}</p></div></div><p class="mini">Applying records the package, module, rung and source fingerprint. Required decision fields remain visibly incomplete until you finish them.</p>`;
+  els.playbookDecisionPreviewBody.innerHTML=`<div class="preview-diff-grid"><div class="tool-card compact"><div class="mini-label">Current</div><p><strong>Decision:</strong> ${escapeHtml(mapDecisionTypeToLegacyPosition(current.dependency||current.type)||'Not set')}</p><p><strong>Fallback:</strong> ${escapeHtml(current.fallback||'Not set')}</p><p><strong>Route:</strong> ${escapeHtml(current.route||'Not set')}</p></div><div class="tool-card compact"><div class="mini-label">Proposed from ${escapeHtml(module.id)} · ${escapeHtml(rung.label||rung.rung)}</div><p><strong>Decision:</strong> ${escapeHtml(mapDecisionTypeToLegacyPosition(proposedType))}</p><p><strong>Fallback:</strong> ${escapeHtml(rung.position||'')}</p><p><strong>Route:</strong> ${escapeHtml(proposedType==='escalate'?'Escalate to Leadership':(current.route||'Legal Only'))}</p></div></div><p class="mini">Applying records the package, module, rung and source fingerprint. Required decision fields remain visibly incomplete until you finish them.</p>`;
   openModal(els.playbookDecisionPreviewModal);
 }
 function setClausePlaybookModule(cid,moduleId,status){const pkg=getActivePlaybookPackage();const module=pkg?.modules?.find(item=>item.id===moduleId);if(!pkg||!module)return;state.clausePlaybookState[cid]={...(state.clausePlaybookState[cid]||{}),moduleId,status,provenance:freezePlaybookProvenance(pkg,module,null,status),updatedAt:new Date().toISOString()};logReviewAction(`playbook-${status}`,cid,{summary:getPlaybookProvenance(cid)});scheduleAutosave({reason:'critical'});renderClauseView();}
@@ -4583,7 +4583,7 @@ function applyPlaybookRung(cid,moduleId,rungId,applyDecision=false){
 function commitPlaybookRung(cid,moduleId,rungId,applyDecision=false){
   const pkg=getActivePlaybookPackage();const module=pkg?.modules?.find(item=>item.id===moduleId);const rung=module?.fallbackLadder?.find(item=>item.rung===rungId);if(!rung)return;
   const current=String(state.clauseFallbacks?.[cid]||'').trim();if(current&&current!==rung.position&&!window.confirm('Replace the existing fallback with this playbook rung?'))return;
-  state.clausePlaybookState[cid]={...(state.clausePlaybookState[cid]||{}),moduleId,status:'confirmed',selectedRung:rungId,provenance:freezePlaybookProvenance(pkg,module,rung,'confirmed'),updatedAt:new Date().toISOString()};state.clauseRecommendations[cid]=module.standardPosition||state.clauseRecommendations[cid]||'';state.clauseFallbacks[cid]=rung.position||'';const d=getClauseDecision(cid);if(applyDecision){const type=rung.recommendedDecision||'seek-amendment';setClauseDecision(cid,{type,fallback:rung.position||d.fallback,rationale:module.whyItMatters||d.rationale,route:type==='escalate'?'Escalate to Leadership':(d.route||'Legal Only'),includeInPack:true,includeInEscalation:type==='escalate'});syncDecisionToLegacyState(cid);}else if(['seek-amendment','reject'].includes(d.type))setClauseDecision(cid,{fallback:rung.position||d.fallback});const appliedDecision=getClauseDecision(cid);state.clausePlaybookState[cid].negotiationState={scenarioSelected:true,draftingPrepared:true,conditionsSatisfied:!!String(appliedDecision.rationale||'').trim(),approvalsObtained:!rung.approvalRequired||appliedDecision.approvalStatus==='Approved',availableToOffer:!rung.approvalRequired||appliedDecision.approvalStatus==='Approved',actuallyOffered:false,counterpartyResponse:'',finalLandingRung:''};logReviewAction(applyDecision?'playbook-rung-and-decision-applied':'playbook-rung-applied',cid,{summary:getPlaybookProvenance(cid)});onSubstantiveChange();
+  state.clausePlaybookState[cid]={...(state.clausePlaybookState[cid]||{}),moduleId,status:'confirmed',selectedRung:rungId,provenance:freezePlaybookProvenance(pkg,module,rung,'confirmed'),updatedAt:new Date().toISOString()};state.clauseRecommendations[cid]=module.standardPosition||state.clauseRecommendations[cid]||'';state.clauseFallbacks[cid]=rung.position||'';const d=getClauseDecision(cid);if(applyDecision){const recommended=rung.recommendedDecision||'seek-amendment';const isDependencyRec=recommended==='escalate'||recommended==='need-input';const patch=isDependencyRec?{dependency:recommended,fallback:rung.position||d.fallback,rationale:module.whyItMatters||d.rationale,route:recommended==='escalate'?'Escalate to Leadership':(d.route||'Legal Only'),includeInPack:true,includeInEscalation:recommended==='escalate'}:{type:recommended,fallback:rung.position||d.fallback,rationale:module.whyItMatters||d.rationale,route:d.route||'Legal Only',includeInPack:true,includeInEscalation:d.dependency==='escalate'};setClauseDecision(cid,patch);syncDecisionToLegacyState(cid);}else if(['seek-amendment','reject'].includes(d.type))setClauseDecision(cid,{fallback:rung.position||d.fallback});const appliedDecision=getClauseDecision(cid);state.clausePlaybookState[cid].negotiationState={scenarioSelected:true,draftingPrepared:true,conditionsSatisfied:!!String(appliedDecision.rationale||'').trim(),approvalsObtained:!rung.approvalRequired||appliedDecision.approvalStatus==='Approved',availableToOffer:!rung.approvalRequired||appliedDecision.approvalStatus==='Approved',actuallyOffered:false,counterpartyResponse:'',finalLandingRung:''};logReviewAction(applyDecision?'playbook-rung-and-decision-applied':'playbook-rung-applied',cid,{summary:getPlaybookProvenance(cid)});onSubstantiveChange();
 }
 
 /* -- Review actions -- */
@@ -4591,21 +4591,41 @@ function logReviewAction(action,clauseId,details={}){state.reviewLog.push({id:`l
 
 function setClausePosition(cid,value){
 invalidateClauseIntelligenceCache(cid);
+// 'Escalate'/'Need input' legacy position labels are workflow dependencies, not legal
+// dispositions -- route them to `dependency` here too, same as applyClauseDecision, so this
+// legacy entry point (Issues console, bulk actions, playbook application) can't reintroduce
+// the type/dependency conflation.
 const mapped=mapLegacyPositionToDecisionType(value||'');
+const isDependencyValue=mapped==='escalate'||mapped==='need-input';
 const route=(state.clauseRoutingTags?.[cid]||[])[0]||'';
 const fallback=state.clauseFallbacks?.[cid]||'';
 const rationale=state.clauseRecommendations?.[cid]||'';
 const existing=getClauseDecision(cid);
-setClauseDecision(cid,{
-  type:mapped,
+const patch={
   route: existing.route||route,
   fallback: existing.fallback||fallback,
   rationale: existing.rationale||rationale,
-  includeInPack: mapped ? mapped!=='accept' : false,
-  includeInEscalation: mapped==='escalate',
-  priority: existing.priority || (mapped==='escalate'?'high':'medium'),
-  status: mapped==='accept' ? 'Agreed' : (existing.status||'Open')
-});
+};
+if(!value){
+  patch.type='';
+  patch.dependency='';
+  patch.includeInPack=false;
+  patch.includeInEscalation=false;
+  patch.status=existing.status||'Open';
+} else if(isDependencyValue){
+  patch.dependency=mapped;
+  patch.includeInPack=true;
+  patch.includeInEscalation=mapped==='escalate';
+  patch.priority=existing.priority||(mapped==='escalate'?'high':'medium');
+  patch.status=existing.status||'Open';
+} else {
+  patch.type=mapped;
+  patch.includeInPack=mapped!=='accept';
+  patch.includeInEscalation=false;
+  patch.priority=existing.priority||'medium';
+  patch.status=mapped==='accept'?'Agreed':(existing.status||'Open');
+}
+setClauseDecision(cid,patch);
 const next=state.clausePositions[cid]||'';
 if(!Array.isArray(state.positionHistory[cid]))state.positionHistory[cid]=[];
 state.positionHistory[cid].push({from:existing.type||'Not set',to:next||'Not set',at:new Date().toISOString()});
@@ -4806,8 +4826,8 @@ function renderResolveWorkspace(){
   if(!els.resolveWorkspace)return;recomputeOpenLoops();
   const clauses=getDecisionRequiredClauses();const groups=[
     ['Decisions',clauses.filter(c=>!getClauseDecision(c.id).type),'Choose a legal disposition'],
-    ['Business questions',clauses.filter(c=>getClauseDecision(c.id).type==='need-input'),'Obtain missing commercial or operational input'],
-    ['Approvals',clauses.filter(c=>getClauseDecision(c.id).type==='escalate'&&String(state.clauseApprovalStatus?.[c.id]||'')!=='Approved'),'Secure required approval'],
+    ['Business questions',clauses.filter(c=>getClauseDecision(c.id).dependency==='need-input'),'Obtain missing commercial or operational input'],
+    ['Approvals',clauses.filter(c=>getClauseDecision(c.id).dependency==='escalate'&&String(state.clauseApprovalStatus?.[c.id]||'')!=='Approved'),'Secure required approval'],
     ['Negotiation',clauses.filter(c=>['Open','Counterparty reviewing','Discussed'].includes(state.clauseNegotiationStatus?.[c.id])),'Close the current negotiation point']
   ];const total=groups.reduce((sum,group)=>sum+group[1].length,0);
   els.resolveWorkspace.innerHTML=`<div class="resolve-home"><header class="resolve-hero"><div><span class="eyebrow">Resolve</span><h1>Open work, grouped by the decision needed</h1><p>This canvas shows only unresolved human dependencies. It does not repeat the clause review.</p></div><div class="resolve-summary"><strong>${total}</strong><span>open item${total===1?'':'s'}</span></div></header><div class="resolve-list">${groups.map(([title,items,description])=>`<section class="resolve-group"><div class="resolve-group-head"><div><h2>${title}</h2><p>${description}</p></div><span>${items.length}</span></div>${items.length?items.map(c=>{const d=getClauseDecision(c.id);return`<details class="resolve-row"><summary><span><strong>${escapeHtml(c.number||c.heading||'Clause')}</strong><small>${escapeHtml(c.heading||c.type||'Contract provision')}</small></span><span>${escapeHtml(d.type?mapDecisionTypeToLegacyPosition(d.type):'Not decided')}</span></summary><div class="resolve-row-body"><p>${escapeHtml(truncateWords(c.body||'',34))}</p><div class="resolve-actions"><button type="button" class="btn btn-sm" data-resolve-open="${escapeHtml(c.id)}">Open clause</button></div></div></details>`;}).join(''):`<div class="resolve-empty">No open ${title.toLowerCase()}.</div>`}</section>`).join('')}</div><footer class="resolve-footer"><button type="button" class="btn" data-stage-jump="decide">Return to review</button><button type="button" class="btn btn-primary" data-stage-jump="close">Prepare outputs</button></footer></div>`;
@@ -6229,6 +6249,7 @@ state.customStopLists=saved.customStopLists&&typeof saved.customStopLists==='obj
 state.bookmarkedClauseIds=Array.isArray(saved.bookmarkedClauseIds)?saved.bookmarkedClauseIds:[];
 state.snoozedClauseIds=Array.isArray(saved.snoozedClauseIds)?saved.snoozedClauseIds:[];
 state.decisionByClause=saved.decisionByClause&&typeof saved.decisionByClause==='object'?saved.decisionByClause:{};
+migrateDecisionDependencyField();
 state.openLoops=Array.isArray(saved.openLoops)?saved.openLoops:[];
 state.readiness=saved.readiness&&typeof saved.readiness==='object'?saved.readiness:{status:'blocked',blockers:[],decidedCount:0,totalCount:0,approvalRequestReady:false,finalSignoffReady:false};
 state.startIntent=typeof saved.startIntent==='string'?saved.startIntent:'checks';state.preferredStartCheck=typeof saved.preferredStartCheck==='string'?saved.preferredStartCheck:'review-items';state.activeCheck=typeof saved.activeCheck==='string'?saved.activeCheck:'';state.activeConcept=typeof saved.activeConcept==='string'?saved.activeConcept:'';state.checkFilter=typeof saved.checkFilter==='string'?saved.checkFilter:'all';state.checkCompletion=saved.checkCompletion&&typeof saved.checkCompletion==='object'?saved.checkCompletion:{};state.findingReview=saved.findingReview&&typeof saved.findingReview==='object'?saved.findingReview:{};
@@ -6691,10 +6712,15 @@ function mapStageToLegacyMode(stage){
 }
 function getActiveWorkflowStage(){ return state.workflowStage || mapLegacyModeToStage(state.workflowMode || 'review'); }
 function getClauseDecision(cid){
-  if(!cid || cid===OVERVIEW_ID) return {type:'', rationale:'', fallback:'', route:'', status:'Open', nextAction:'', includeInPack:false, includeInEscalation:false, updatedAt:''};
+  if(!cid || cid===OVERVIEW_ID) return {type:'', dependency:'', rationale:'', fallback:'', route:'', status:'Open', nextAction:'', includeInPack:false, includeInEscalation:false, updatedAt:''};
   if(!state.decisionByClause[cid]){
+    // 'need-input'/'escalate' are workflow dependencies, not legal dispositions -- see `dependency` below --
+    // so a legacy position of either kind seeds `dependency`, never `type`.
+    const legacyType=mapLegacyPositionToDecisionType(state.clausePositions?.[cid] || '');
+    const legacyIsDependency=legacyType==='need-input'||legacyType==='escalate';
     state.decisionByClause[cid]={
-      type: mapLegacyPositionToDecisionType(state.clausePositions?.[cid] || ''),
+      type: legacyIsDependency?'':legacyType,
+      dependency: legacyIsDependency?legacyType:'',
       rationale:'',
       openingAsk: state.clauseFallbackLadders?.[cid]?.openingAsk || '',
       fallback: state.clauseFallbacks?.[cid] || state.clauseFallbackLadders?.[cid]?.fallback || '',
@@ -6729,9 +6755,28 @@ function mapDecisionTypeToLegacyPosition(type){
   return '';
 }
 
+// One-time migration for matters saved before 'need-input'/'escalate' became a separate
+// `dependency` field: they may still have those values sitting in `type`. Recover the real
+// legal disposition (if any) from transitionHistory rather than dropping it.
+function migrateDecisionDependencyField(){
+  Object.values(state.decisionByClause||{}).forEach(d=>{
+    if(!d || typeof d!=='object') return;
+    if(d.type==='need-input'||d.type==='escalate'){
+      if(!d.dependency) d.dependency=d.type;
+      const priorReal=[...(d.transitionHistory||[])].reverse().find(t=>['accept','accept-with-changes','seek-amendment','reject'].includes(t.to));
+      d.type=priorReal?priorReal.to:'';
+    } else if(typeof d.dependency!=='string'){
+      d.dependency='';
+    }
+  });
+}
 function syncDecisionToLegacyState(cid){
   const d=getClauseDecision(cid);
-  const mappedPos=mapDecisionTypeToLegacyPosition(d.type);
+  // The legacy single-value position field predates the type/dependency split and can only
+  // hold one value; a live workflow dependency (need-input/escalate) takes the same priority
+  // it always implicitly had, so every existing legacy-position-driven surface (escalated
+  // badges, strategy-panel visibility, position counts) keeps working unchanged.
+  const mappedPos=mapDecisionTypeToLegacyPosition(d.dependency||d.type);
   if(mappedPos) state.clausePositions[cid]=mappedPos; else delete state.clausePositions[cid];
   if(String(d.route||'').trim()) state.clauseRoutingTags[cid]=[d.route]; else delete state.clauseRoutingTags[cid];
   if(d.status) state.clauseNegotiationStatus[cid]=d.status; else delete state.clauseNegotiationStatus[cid];
@@ -6750,8 +6795,11 @@ function seedDecisionStateFromLegacy(){
     const legacyRationale=state.clauseRecommendations?.[c.id]||'';
     const legacyStatus=state.clauseNegotiationStatus?.[c.id]||'';
     if(legacyPos || legacyRoute || legacyFallback || legacyRationale || legacyStatus){
+      const legacyType=mapLegacyPositionToDecisionType(legacyPos);
+      const legacyIsDependency=legacyType==='need-input'||legacyType==='escalate';
       state.decisionByClause[c.id]={
-        type: mapLegacyPositionToDecisionType(legacyPos),
+        type: legacyIsDependency?'':legacyType,
+        dependency: legacyIsDependency?legacyType:'',
         rationale: legacyRationale,
         openingAsk: state.clauseFallbackLadders?.[c.id]?.openingAsk || '',
         fallback: legacyFallback || state.clauseFallbackLadders?.[c.id]?.fallback || '',
@@ -6771,37 +6819,45 @@ function seedDecisionStateFromLegacy(){
 
 function setClauseDecision(cid, patch={}){
   const d=getClauseDecision(cid);
-  if(Object.prototype.hasOwnProperty.call(patch,'type')&&patch.type!==d.type){
+  // `type` (the legal disposition: accept/amend/reject) and `dependency` (a workflow block:
+  // need-input/escalate) are independent -- a clause can be "Amend, awaiting Finance input" or
+  // "Reject, escalated to GC" at once. Only `type` transitions get archived history, since that's
+  // the substantive legal position; `dependency` is routing state layered on top of it.
+  const typeChanged=Object.prototype.hasOwnProperty.call(patch,'type')&&patch.type!==d.type;
+  const dependencyChanged=Object.prototype.hasOwnProperty.call(patch,'dependency')&&patch.dependency!==d.dependency;
+  if(typeChanged){
     d.transitionHistory=[...(d.transitionHistory||[]),{from:d.type||'',to:patch.type||'',at:new Date().toISOString(),archived:{route:d.route||'',owner:d.owner||'',question:d.question||'',fallback:d.fallback||'',openingAsk:d.openingAsk||'',rationale:d.rationale||''}}].slice(-20);
-    if(!decisionRequiresRoute(patch.type))d.route='';
-    if(!decisionRequiresOwner(patch.type))d.owner='';
-    if(!decisionRequiresQuestion(patch.type))d.question='';
-    if(!decisionRequiresFallback(patch.type)){d.fallback='';d.openingAsk='';}
-    if(!decisionRequiresRationale(patch.type))d.rationale='';
-    d.blocksApproval=patch.type==='need-input';
   }
   Object.assign(d, patch||{});
+  if(typeChanged||dependencyChanged){
+    if(!decisionRequiresRoute(d.type,d.dependency))d.route='';
+    if(!decisionRequiresOwner(d.type,d.dependency))d.owner='';
+    if(!decisionRequiresQuestion(d.type,d.dependency))d.question='';
+    if(!decisionRequiresFallback(d.type,d.dependency)){d.fallback='';d.openingAsk='';}
+    if(!decisionRequiresRationale(d.type,d.dependency))d.rationale='';
+  }
+  if(dependencyChanged) d.blocksApproval=patch.dependency==='need-input';
   d.updatedAt=new Date().toISOString();
   syncDecisionToLegacyState(cid);
   return d;
 }
-function decisionRequiresRationale(type){ return ['accept-with-changes','escalate'].includes(type); }
-function decisionRequiresFallback(type){ return ['seek-amendment','reject'].includes(type); }
-function decisionRequiresRoute(type){ return ['seek-amendment','need-input','escalate'].includes(type); }
-function decisionRequiresOwner(type){ return type==='escalate'; }
-function decisionRequiresQuestion(type){ return type==='need-input'; }
-function decisionShowsOwner(type){ return type==='escalate'; }
-function decisionShowsQuestion(type){ return type==='need-input'; }
+function decisionRequiresRationale(type,dependency){ return type==='accept-with-changes'||dependency==='escalate'; }
+function decisionRequiresFallback(type,dependency){ return ['seek-amendment','reject'].includes(type); }
+function decisionRequiresRoute(type,dependency){ return type==='seek-amendment'||dependency==='need-input'||dependency==='escalate'; }
+function decisionRequiresOwner(type,dependency){ return dependency==='escalate'; }
+function decisionRequiresQuestion(type,dependency){ return dependency==='need-input'; }
+function decisionShowsOwner(type,dependency){ return dependency==='escalate'; }
+function decisionShowsQuestion(type,dependency){ return dependency==='need-input'; }
 function getDecisionCompletionForValue(d={}){
   const missing=[];
   if(!d.type) missing.push('Decision');
-  if(d.type){
-    if(decisionRequiresRationale(d.type) && !String(d.rationale||'').trim()) missing.push('Rationale');
-    if(decisionRequiresFallback(d.type) && !String(d.fallback||'').trim()) missing.push('Fallback');
-    if(decisionRequiresRoute(d.type) && !String(d.route||'').trim()) missing.push('Route');
-    if(decisionRequiresOwner(d.type) && !String(d.owner||'').trim()) missing.push('Owner');
-    if(decisionRequiresQuestion(d.type) && !String(d.question||'').trim()) missing.push('Question');
-  }
+  // Not gated on `d.type` being set: a workflow dependency (escalate/need-input) can require an
+  // Owner or Question even before a legal disposition has been chosen.
+  if(decisionRequiresRationale(d.type,d.dependency) && !String(d.rationale||'').trim()) missing.push('Rationale');
+  if(decisionRequiresFallback(d.type,d.dependency) && !String(d.fallback||'').trim()) missing.push('Fallback');
+  if(decisionRequiresRoute(d.type,d.dependency) && !String(d.route||'').trim()) missing.push('Route');
+  if(decisionRequiresOwner(d.type,d.dependency) && !String(d.owner||'').trim()) missing.push('Owner');
+  if(decisionRequiresQuestion(d.type,d.dependency) && !String(d.question||'').trim()) missing.push('Question');
   return {complete: missing.length===0, missing};
 }
 function getDecisionCompletionState(cid){return getDecisionCompletionForValue(getClauseDecision(cid));}
@@ -6821,42 +6877,48 @@ function maybeAutoAdvanceDecision(cid){
 }
 function recordDecisionLog(cid){
   const d=getClauseDecision(cid);
-  logReviewAction('decision-updated', cid, {summary:`${d.type||'Not set'}${d.route?` • ${d.route}`:''}`});
+  logReviewAction('decision-updated', cid, {summary:`${d.type||'Not set'}${d.dependency?` • ${d.dependency==='escalate'?'Escalated':'Awaiting input'}`:''}${d.route?` • ${d.route}`:''}`});
 }
 function applyClauseDecision(cid, nextType){
   if(!cid || cid===OVERVIEW_ID) return;
   const before=deepCloneUndoValue(getClauseDecision(cid));
-  const patch={type:nextType||'', includeInPack:false, includeInEscalation:false, priority:getClauseDecision(cid).priority||'medium'};
-  if(nextType==='accept'){
-    patch.status='Agreed';
-    patch.nextAction=state.verificationByKey?.[`clause-source-${cid}`]==='confirmed'?'Decision and source verified':'Verify decision against source';
-  } else if(nextType==='accept-with-changes'){
-    patch.includeInPack=true;
-    patch.status='Drafting fix';
-    patch.nextAction='Capture the lawyer drafting rationale';
-  } else if(nextType==='seek-amendment'){
-    patch.includeInPack=true;
-    patch.status='In negotiation';
-    patch.nextAction='Capture fallback and route';
-  } else if(nextType==='reject'){
-    patch.includeInPack=true;
-    patch.status='In negotiation';
-    patch.nextAction='Capture fallback before pushing back';
-  } else if(nextType==='escalate'){
-    patch.includeInPack=true;
-    patch.includeInEscalation=true;
-    patch.priority='high';
-    patch.status='Open';
-    patch.nextAction='Escalate internally';
-  } else if(nextType==='need-input'){
-    patch.includeInPack=true;
-    patch.priority=patch.priority||'medium';
-    patch.status='Awaiting input';
-    patch.nextAction='Route for input';
+  const current=getClauseDecision(cid);
+  // 'escalate'/'need-input' are workflow dependencies, layered independently on top of the legal
+  // disposition (accept/amend/reject) rather than replacing it -- so "Reject; escalated to GC" or
+  // "Amend; awaiting Finance input" can both be represented at once. The dependency chips toggle:
+  // clicking the currently-active one clears it.
+  const isDependency=nextType==='escalate'||nextType==='need-input';
+  const patch={priority:current.priority||'medium'};
+  let finalType=current.type, finalDependency=current.dependency;
+  if(isDependency){
+    finalDependency=current.dependency===nextType?'':nextType;
+    patch.dependency=finalDependency;
+    if(finalDependency==='escalate'){patch.priority='high';patch.nextAction='Escalate internally';}
+    else if(finalDependency==='need-input'){patch.nextAction='Route for input';}
+    else patch.nextAction=current.nextAction||'';
+    patch.status=current.status||'Open';
   } else {
-    patch.status='Open';
-    patch.nextAction='Capture a decision';
+    finalType=nextType||'';
+    patch.type=finalType;
+    if(finalType==='accept'){
+      patch.status='Agreed';
+      patch.nextAction=state.verificationByKey?.[`clause-source-${cid}`]==='confirmed'?'Decision and source verified':'Verify decision against source';
+    } else if(finalType==='accept-with-changes'){
+      patch.status='Drafting fix';
+      patch.nextAction='Capture the lawyer drafting rationale';
+    } else if(finalType==='seek-amendment'){
+      patch.status='In negotiation';
+      patch.nextAction='Capture fallback and route';
+    } else if(finalType==='reject'){
+      patch.status='In negotiation';
+      patch.nextAction='Capture fallback before pushing back';
+    } else {
+      patch.status='Open';
+      patch.nextAction='Capture a decision';
+    }
   }
+  patch.includeInPack=['accept-with-changes','seek-amendment','reject'].includes(finalType)||['need-input','escalate'].includes(finalDependency);
+  patch.includeInEscalation=finalDependency==='escalate';
   setClauseDecision(cid, patch);
   const after=deepCloneUndoValue(getClauseDecision(cid));
   recordUndoable('Decision update',cid,{before,after,reverter:(val)=>{state.decisionByClause[cid]=deepCloneUndoValue(val)||{}; syncDecisionToLegacyState(cid); recomputeOpenLoops(); renderClauseView(); renderClauseList(); renderActiveRightPanel();}});
@@ -6886,27 +6948,29 @@ function renderDecisionCardBase(clause){
   const completion=getDecisionCompletionState(cid);
   const legalOpts=[['accept','Accept'],['seek-amendment','Amend'],['reject','Reject']];
   const workflowOpts=[['need-input','Get input'],['escalate','Escalate']];
-  const opts=[...legalOpts,...workflowOpts,['accept-with-changes','Amend']];
   const risk=state.clauseRiskScores?.[cid]||'Low';
   const suggestedRoute=getDefaultRouteForClause(cid)||'Legal Only';
-  const currentLabel=opts.find(([key])=>key===d.type)?.[1]||'Not set';
+  const currentLabel=legalOpts.find(([key])=>key===d.type)?.[1]||(d.type==='accept-with-changes'?'Amend':'Not set');
+  const dependencyLabel=workflowOpts.find(([key])=>key===d.dependency)?.[1]||'';
   const approvalStatus=String(state.clauseApprovalStatus?.[cid]||d.approvalStatus||'Raised');
-  const escalationWorkflow=d.type==='escalate'?`<label><span>Approval state</span><select id="decisionApprovalStatusSelect">${['Raised','Sent for approval','Approved','Rejected','Returned'].map(value=>`<option value="${value}" ${approvalStatus===value?'selected':''}>${value}</option>`).join('')}</select><span class="mini">An approval request pack may be prepared once the escalation context is complete. Final sign-off waits for Approved.</span></label>`:'';
-  const inputPolicy=`<div class="decision-source-check"><button type="button" class="btn btn-xs ${state.verificationByKey?.[`clause-source-${cid}`]==='confirmed'?'btn-secondary':'btn-ghost'}" data-action="verify-clause-source">${state.verificationByKey?.[`clause-source-${cid}`]==='confirmed'?'Source verified ✓':'Verify decision against source'}</button><span class="mini">A decision alone does not mark this clause reviewed.</span></div>${d.type==='need-input'?`<label class="decision-checkbox"><input id="decisionBlocksApprovalCheckbox" type="checkbox" ${d.blocksApproval!==false?'checked':''}> <span>This input blocks approval and final sign-off</span></label>`:''}`;
+  const escalationWorkflow=d.dependency==='escalate'?`<label><span>Approval state</span><select id="decisionApprovalStatusSelect">${['Raised','Sent for approval','Approved','Rejected','Returned'].map(value=>`<option value="${value}" ${approvalStatus===value?'selected':''}>${value}</option>`).join('')}</select><span class="mini">An approval request pack may be prepared once the escalation context is complete. Final sign-off waits for Approved.</span></label>`:'';
+  const inputPolicy=`<div class="decision-source-check"><button type="button" class="btn btn-xs ${state.verificationByKey?.[`clause-source-${cid}`]==='confirmed'?'btn-secondary':'btn-ghost'}" data-action="verify-clause-source">${state.verificationByKey?.[`clause-source-${cid}`]==='confirmed'?'Source verified ✓':'Verify decision against source'}</button><span class="mini">A decision alone does not mark this clause reviewed.</span></div>${d.dependency==='need-input'?`<label class="decision-checkbox"><input id="decisionBlocksApprovalCheckbox" type="checkbox" ${d.blocksApproval!==false?'checked':''}> <span>This input blocks approval and final sign-off</span></label>`:''}`;
   const legalActive=d.type==='accept-with-changes'?'seek-amendment':d.type;
-  return `<div class="decision-card"><div class="decision-card-topline"><div><div class="mini-label">Legal decision</div><strong>${escapeHtml(currentLabel)}</strong></div><button type="button" class="btn btn-xs btn-ghost decision-card-collapse" data-action="toggle-decision-collapse">${state.mobileDecisionCollapsed&&isMobileViewport()?'Choose / edit':'Collapse'}</button></div><div class="decision-choice-group" aria-label="Legal decision">${legalOpts.map(([key,label])=>`<button type="button" aria-pressed="${legalActive===key?'true':'false'}" class="decision-chip ${legalActive===key?'active':''}" data-action="set-decision" data-decision-type="${key}">${escapeHtml(label)}</button>`).join('')}</div><div class="workflow-choice-group"><span>Need someone else?</span>${workflowOpts.map(([key,label])=>`<button type="button" aria-pressed="${d.type===key?'true':'false'}" class="decision-chip workflow ${d.type===key?'active':''}" data-action="set-decision" data-decision-type="${key}">${escapeHtml(label)}</button>`).join('')}</div><div class="decision-card-meta"><span class="decision-pill">${escapeHtml(risk)} risk</span><span class="decision-pill">${escapeHtml(state.reviewPriorityScores?.[cid]||'Low')} priority</span><span class="decision-pill">${d.route?`Route: ${escapeHtml(d.route)}`:`Suggested: ${escapeHtml(suggestedRoute)}`}</span></div>${!completion.complete?`<ul class="decision-required-list">${completion.missing.map(item=>`<li>${escapeHtml(item)} required</li>`).join('')}</ul>`:`<div class="decision-helper">Decision complete. ${escapeHtml(d.nextAction||'Move to the next clause.')}</div>`}<div class="decision-card-fields">${decisionRequiresRationale(d.type)?`<label><span>Rationale</span><textarea id="decisionRationaleInput" placeholder="Why are we taking this position?">${escapeHtml(d.rationale||'')}</textarea></label>`:''}${decisionRequiresFallback(d.type)?`<label><span>Opening ask</span><textarea id="decisionOpeningAskInput" placeholder="Opening ask or first position">${escapeHtml(d.openingAsk||'')}</textarea></label><label><span>Fallback</span><textarea id="decisionFallbackInput" placeholder="Fallback or compromise position">${escapeHtml(d.fallback||'')}</textarea></label>`:''}${decisionRequiresRoute(d.type)?`<label><span>Route</span><select id="decisionRouteSelect"><option value="">Select route…</option>${ROUTING_TAG_OPTIONS.map(o=>`<option value="${escapeHtml(o)}" ${o===d.route?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select><span class="mini">Suggested: ${escapeHtml(suggestedRoute)}</span></label>`:''}<label><span>Priority</span><select id="decisionPrioritySelect"><option value="high" ${d.priority==='high'?'selected':''}>High</option><option value="medium" ${(!d.priority||d.priority==='medium')?'selected':''}>Medium</option><option value="low" ${d.priority==='low'?'selected':''}>Low</option></select></label><label class="decision-checkbox"><input id="decisionIncludePackCheckbox" type="checkbox" ${d.includeInPack?'checked':''}> <span>Include in negotiation pack</span></label>${decisionRequiresOwner(d.type)?`<label><span>Owner</span><input id="decisionOwnerInput" type="text" value="${escapeHtml(d.owner||'')}" placeholder="Who owns the escalation?"></label>`:''}${decisionRequiresQuestion(d.type)?`<label><span>Question / ask</span><textarea id="decisionQuestionInput" placeholder="What input do you need?">${escapeHtml(d.question||'')}</textarea></label>`:''}${escalationWorkflow}${inputPolicy}</div></div>`;
+  // Legal decision (accept/amend/reject) and workflow dependency (need-input/escalate) are
+  // independent, so both are shown side by side rather than one overwriting the other's display.
+  return `<div class="decision-card"><div class="decision-card-topline"><div><div class="mini-label">Legal decision</div><strong>${escapeHtml(currentLabel)}</strong>${dependencyLabel?`<span class="decision-dependency-badge">${escapeHtml(dependencyLabel)}</span>`:''}</div><button type="button" class="btn btn-xs btn-ghost decision-card-collapse" data-action="toggle-decision-collapse">${state.mobileDecisionCollapsed&&isMobileViewport()?'Choose / edit':'Collapse'}</button></div><div class="decision-choice-group" aria-label="Legal decision">${legalOpts.map(([key,label])=>`<button type="button" aria-pressed="${legalActive===key?'true':'false'}" class="decision-chip ${legalActive===key?'active':''}" data-action="set-decision" data-decision-type="${key}">${escapeHtml(label)}</button>`).join('')}</div><div class="workflow-choice-group"><span>Need someone else?</span>${workflowOpts.map(([key,label])=>`<button type="button" aria-pressed="${d.dependency===key?'true':'false'}" class="decision-chip workflow ${d.dependency===key?'active':''}" data-action="set-decision" data-decision-type="${key}" title="Independent of the legal decision above — click again to clear">${escapeHtml(label)}</button>`).join('')}</div><div class="decision-card-meta"><span class="decision-pill">${escapeHtml(risk)} risk</span><span class="decision-pill">${escapeHtml(state.reviewPriorityScores?.[cid]||'Low')} priority</span><span class="decision-pill">${d.route?`Route: ${escapeHtml(d.route)}`:`Suggested: ${escapeHtml(suggestedRoute)}`}</span></div>${!completion.complete?`<ul class="decision-required-list">${completion.missing.map(item=>`<li>${escapeHtml(item)} required</li>`).join('')}</ul>`:`<div class="decision-helper">Decision complete. ${escapeHtml(d.nextAction||'Move to the next clause.')}</div>`}<div class="decision-card-fields">${decisionRequiresRationale(d.type,d.dependency)?`<label><span>Rationale</span><textarea id="decisionRationaleInput" placeholder="Why are we taking this position?">${escapeHtml(d.rationale||'')}</textarea></label>`:''}${decisionRequiresFallback(d.type,d.dependency)?`<label><span>Opening ask</span><textarea id="decisionOpeningAskInput" placeholder="Opening ask or first position">${escapeHtml(d.openingAsk||'')}</textarea></label><label><span>Fallback</span><textarea id="decisionFallbackInput" placeholder="Fallback or compromise position">${escapeHtml(d.fallback||'')}</textarea></label>`:''}${decisionRequiresRoute(d.type,d.dependency)?`<label><span>Route</span><select id="decisionRouteSelect"><option value="">Select route…</option>${ROUTING_TAG_OPTIONS.map(o=>`<option value="${escapeHtml(o)}" ${o===d.route?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select><span class="mini">Suggested: ${escapeHtml(suggestedRoute)}</span></label>`:''}<label><span>Priority</span><select id="decisionPrioritySelect"><option value="high" ${d.priority==='high'?'selected':''}>High</option><option value="medium" ${(!d.priority||d.priority==='medium')?'selected':''}>Medium</option><option value="low" ${d.priority==='low'?'selected':''}>Low</option></select></label><label class="decision-checkbox"><input id="decisionIncludePackCheckbox" type="checkbox" ${d.includeInPack?'checked':''}> <span>Include in negotiation pack</span></label>${decisionRequiresOwner(d.type,d.dependency)?`<label><span>Owner</span><input id="decisionOwnerInput" type="text" value="${escapeHtml(d.owner||'')}" placeholder="Who owns the escalation?"></label>`:''}${decisionRequiresQuestion(d.type,d.dependency)?`<label><span>Question / ask</span><textarea id="decisionQuestionInput" placeholder="What input do you need?">${escapeHtml(d.question||'')}</textarea></label>`:''}${escalationWorkflow}${inputPolicy}</div></div>`;
 }
 function renderClientShareControl(cid){const share=state.clauseAudienceSharing?.[cid]||{};if(share.client!==true&&getActiveWorkflowStage()!=='close')return'';return `<div class="client-share-control"><div class="panel-subhead">External wording gate</div><label class="decision-checkbox"><input id="decisionShareClientCheckbox" type="checkbox" ${share.client===true?'checked':''}> <span>Prepare this clause for client / counterparty output</span></label>${share.client===true?`<label class="drafting-field"><span>Lawyer-authored external wording</span><textarea id="decisionExternalSummaryInput" placeholder="Write the exact wording that may be shared externally. Internal notes, risk narratives and fallbacks are never copied here automatically.">${escapeHtml(share.summary||'')}</textarea></label><label class="decision-checkbox"><input id="decisionExternalSummaryApproved" type="checkbox" ${share.summaryApproved===true&&String(share.summary||'').trim()?'checked':''}> <span>I have reviewed and approve this wording for external output</span></label>`:''}<div class="mini">A client-facing report includes this item only when both the wording and approval are present.</div></div>`;}
 function renderDecisionCard(clause){return `${renderDecisionCardBase(clause)}${renderClientShareControl(clause.id)}`;}
-function recomputeOpenLoops(){ const reviewable=getDecisionRequiredClauses(); const sig=JSON.stringify(reviewable.map(c=>{ const d=getClauseDecision(c.id); return [c.id,d.type||"",d.fallback||"",d.route||"",d.owner||"",d.question||"",d.blocksApproval!==false,state.clauseApprovalStatus?.[c.id]||d.approvalStatus||""]; })); state.memoCache=state.memoCache||{}; if(state.memoCache.openLoopsSig===sig && Array.isArray(state.memoCache.openLoopsValue)){ state.openLoops=state.memoCache.openLoopsValue.map(x=>({...x})); recomputeReadiness(); return; }
+function recomputeOpenLoops(){ const reviewable=getDecisionRequiredClauses(); const sig=JSON.stringify(reviewable.map(c=>{ const d=getClauseDecision(c.id); return [c.id,d.type||"",d.dependency||"",d.fallback||"",d.route||"",d.owner||"",d.question||"",d.blocksApproval!==false,state.clauseApprovalStatus?.[c.id]||d.approvalStatus||""]; })); state.memoCache=state.memoCache||{}; if(state.memoCache.openLoopsSig===sig && Array.isArray(state.memoCache.openLoopsValue)){ state.openLoops=state.memoCache.openLoopsValue.map(x=>({...x})); recomputeReadiness(); return; }
   const loops=[];
   reviewable.forEach(clause=>{
     const cid=clause.id;
     const d=getClauseDecision(cid);
     if(!d.type) loops.push({id:`loop-${cid}-decision`, clauseId:cid, type:'missing-decision', priority:'completion', blocksApprovalRequest:true,blocksFinalSignoff:true});
-    if(decisionRequiresFallback(d.type) && !String(d.fallback||'').trim()) loops.push({id:`loop-${cid}-fallback`, clauseId:cid, type:'missing-fallback', priority:'high',blocksApprovalRequest:true,blocksFinalSignoff:true});
-    if(d.type==='need-input') loops.push({id:`loop-${cid}-input`, clauseId:cid, type:'awaiting-input', priority:'medium',blocksApprovalRequest:d.blocksApproval!==false,blocksFinalSignoff:true});
-    if(d.type==='escalate'){
+    if(decisionRequiresFallback(d.type,d.dependency) && !String(d.fallback||'').trim()) loops.push({id:`loop-${cid}-fallback`, clauseId:cid, type:'missing-fallback', priority:'high',blocksApprovalRequest:true,blocksFinalSignoff:true});
+    if(d.dependency==='need-input') loops.push({id:`loop-${cid}-input`, clauseId:cid, type:'awaiting-input', priority:'medium',blocksApprovalRequest:d.blocksApproval!==false,blocksFinalSignoff:true});
+    if(d.dependency==='escalate'){
       const approvalStatus=String(state.clauseApprovalStatus?.[cid]||d.approvalStatus||'Raised');
       if(approvalStatus!=='Approved')loops.push({id:`loop-${cid}-escalation`, clauseId:cid, type:'escalation-open', priority:'high',approvalStatus,blocksApprovalRequest:false,blocksFinalSignoff:true});
     }
@@ -6919,7 +6983,7 @@ function recomputeReadiness(){
   const decided=clauses.filter(c=>!!getClauseDecision(c.id).type).length;
   const approvalRequestBlockers=(state.openLoops||[]).filter(loop=>loop.blocksApprovalRequest===true);
   const finalSignoffBlockers=(state.openLoops||[]).filter(loop=>loop.blocksFinalSignoff===true);
-  const incompleteContested=clauses.filter(c=>{ const d=getClauseDecision(c.id); return ['accept-with-changes','seek-amendment','reject','escalate','need-input'].includes(d.type) && !getDecisionCompletionState(c.id).complete; });
+  const incompleteContested=clauses.filter(c=>{ const d=getClauseDecision(c.id); return (['accept-with-changes','seek-amendment','reject'].includes(d.type)||['escalate','need-input'].includes(d.dependency)) && !getDecisionCompletionState(c.id).complete; });
   const incompleteLoops=incompleteContested.map(c=>({id:`incomplete-${c.id}`, clauseId:c.id, type:'incomplete-decision',blocksApprovalRequest:true,blocksFinalSignoff:true}));
   const completion=clauses.map(c=>({clause:c,...getClauseCompletionState(c.id)}));
   const unverified=completion.filter(item=>!item.reviewComplete).map(item=>({id:`unverified-${item.clause.id}`,clauseId:item.clause.id,type:item.decisionComplete?'source-not-verified':'review-incomplete',blocksApprovalRequest:true,blocksFinalSignoff:true}));
@@ -6935,13 +6999,13 @@ function getQueueFilteredClauses(){
     case 'needs-decision': return clauses.filter(c=>clauseRequiresDecision(c)&&!getClauseDecision(c.id).type);
     case 'high-risk': return clauses.filter(c=>(state.clauseRiskScores?.[c.id]||'')==='High');
     case 'needs-fallback': return clauses.filter(c=>{ const d=getClauseDecision(c.id); return ['seek-amendment','reject'].includes(d.type) && !String(d.fallback||'').trim(); });
-    case 'awaiting-input': return clauses.filter(c=>getClauseDecision(c.id).type==='need-input');
-    case 'escalations': return clauses.filter(c=>getClauseDecision(c.id).type==='escalate'&&String(state.clauseApprovalStatus?.[c.id]||'')!=='Approved');
+    case 'awaiting-input': return clauses.filter(c=>getClauseDecision(c.id).dependency==='need-input');
+    case 'escalations': return clauses.filter(c=>getClauseDecision(c.id).dependency==='escalate'&&String(state.clauseApprovalStatus?.[c.id]||'')!=='Approved');
     case 'decided': return clauses.filter(c=>!!getClauseDecision(c.id).type);
     default: return clauses;
   }
 }
-function getQueueCountSignature(){return JSON.stringify(getReviewableClauses().map(c=>{const d=getClauseDecision(c.id);return [c.id,state.clauseRiskScores?.[c.id]||'',d.type,d.fallback];}));}
+function getQueueCountSignature(){return JSON.stringify(getReviewableClauses().map(c=>{const d=getClauseDecision(c.id);return [c.id,state.clauseRiskScores?.[c.id]||'',d.type,d.dependency,d.fallback];}));}
 function getQueueCounts(){
   const signature=getQueueCountSignature();
   if(memoCache.queueCounts.signature===signature && memoCache.queueCounts.value) return memoCache.queueCounts.value;
@@ -6950,8 +7014,8 @@ function getQueueCounts(){
     'needs-decision': getDecisionRequiredClauses().filter(c=>!getClauseDecision(c.id).type).length,
     'high-risk': clauses.filter(c=>(state.clauseRiskScores?.[c.id]||'')==='High').length,
     'needs-fallback': clauses.filter(c=>{const d=getClauseDecision(c.id); return ['seek-amendment','reject'].includes(d.type) && !String(d.fallback||'').trim();}).length,
-    'awaiting-input': clauses.filter(c=>getClauseDecision(c.id).type==='need-input').length,
-    'escalations': clauses.filter(c=>getClauseDecision(c.id).type==='escalate'&&String(state.clauseApprovalStatus?.[c.id]||'')!=='Approved').length,
+    'awaiting-input': clauses.filter(c=>getClauseDecision(c.id).dependency==='need-input').length,
+    'escalations': clauses.filter(c=>getClauseDecision(c.id).dependency==='escalate'&&String(state.clauseApprovalStatus?.[c.id]||'')!=='Approved').length,
     'decided': clauses.filter(c=>!!getClauseDecision(c.id).type).length
   };
   memoCache.queueCounts={signature,value:counts};
@@ -7027,8 +7091,8 @@ return 'high';
 function deriveReadinessImpact(clause){
 const cid=clause?.id;
 const d=getClauseDecision(cid);
-if(['escalate'].includes(d.type)) return 'blocker';
-if(['seek-amendment','reject','need-input'].includes(d.type)) return getDecisionCompletionState(cid).complete ? 'caution' : 'blocker';
+if(d.dependency==='escalate') return 'blocker';
+if(['seek-amendment','reject'].includes(d.type)||d.dependency==='need-input') return getDecisionCompletionState(cid).complete ? 'caution' : 'blocker';
 return 'none';
 }
 function buildClauseDependencyHints(clause){
@@ -7065,7 +7129,7 @@ function buildPreparePackItems(){
     const card=deriveIssueCard(clause)||{};
     const issue=card.riskSummary||state.clauseRiskNarratives?.[clause.id]||card.theme||'No issue summary captured';
     const priority=d.priority||(((state.clauseRiskScores?.[clause.id]||'Low')==='High')?'high':'medium');
-    const include=!!(d.includeInPack || ['accept-with-changes','seek-amendment','reject','escalate','need-input'].includes(d.type));
+    const include=!!(d.includeInPack || ['accept-with-changes','seek-amendment','reject'].includes(d.type) || ['escalate','need-input'].includes(d.dependency));
     return {clause,d,completion,issue,priority,include,theme:(inferNegotiationTheme?inferNegotiationTheme(clause):clause.type)||'General'};
   }).filter(item=>item.include);
   memoCache.preparePack={signature,value:items};
@@ -7098,10 +7162,10 @@ function buildBusinessSummaryTxt() {
   if (terms.paymentTerms && terms.paymentTerms !== 'Not detected') lines.push(`Payment: ${terms.paymentTerms}.`);
   if (terms.renewal && terms.renewal !== 'Not detected') lines.push(`Renewal: ${terms.renewal}.`);
   lines.push('');
-  const businessItems = buildPreparePackItems().filter(item => /Business/i.test(item.d.route || '') || item.d.type === 'escalate' || item.priority === 'high').slice(0, 8);
+  const businessItems = buildPreparePackItems().filter(item => /Business/i.test(item.d.route || '') || item.d.dependency === 'escalate' || item.priority === 'high').slice(0, 8);
   lines.push('KEY POINTS REQUIRING YOUR ATTENTION', '');
   if (!businessItems.length) lines.push('No items currently flagged for business attention.');
-  else businessItems.forEach((item, i) => { const posLabel = {'accept':'We are comfortable accepting this','accept-with-changes':'We can accept this with some changes','seek-amendment':'We need to negotiate changes here','reject':'This is not acceptable in its current form','escalate':'This needs leadership approval','need-input':'We need your input on this point'}[item.d.type || ''] || 'Under review'; lines.push(`${i + 1}. ${item.clause.heading || item.clause.number || 'Clause'}`); lines.push(`   ${item.issue}`); lines.push(`   Our position: ${posLabel}.`); if (item.d.question) lines.push(`   Question for you: ${item.d.question}`); lines.push(''); });
+  else businessItems.forEach((item, i) => { const positionPhrase = {'accept':'We are comfortable accepting this','accept-with-changes':'We can accept this with some changes','seek-amendment':'We need to negotiate changes here','reject':'This is not acceptable in its current form'}[item.d.type || ''] || 'Under review'; const dependencyPhrase = {'escalate':'This needs leadership approval','need-input':'We need your input on this point'}[item.d.dependency || ''] || ''; lines.push(`${i + 1}. ${item.clause.heading || item.clause.number || 'Clause'}`); lines.push(`   ${item.issue}`); lines.push(`   Our position: ${positionPhrase}.${dependencyPhrase?` ${dependencyPhrase}.`:''}`); if (item.d.question) lines.push(`   Question for you: ${item.d.question}`); lines.push(''); });
   const signing = computeSigningReadinessChecks();
   lines.push('WHERE THINGS STAND', '');
   lines.push(`Review status: ${signing.level}`);
@@ -7110,20 +7174,24 @@ function buildBusinessSummaryTxt() {
   else lines.push('All review checks are complete. The contract is ready for sign-off.');
   return lines.join('\n');
 }
+function decisionDisplayLabel(d){
+  const dependencySuffix=d.dependency==='escalate'?' (escalated)':d.dependency==='need-input'?' (awaiting input)':'';
+  return `${d.type||'not decided'}${dependencySuffix}`;
+}
 function buildLeadershipEscalationTxt(){
-  const items=buildPreparePackItems().filter(item=>item.d.type==='escalate' || /leadership/i.test(item.d.route||'') || item.priority==='high');
+  const items=buildPreparePackItems().filter(item=>item.d.dependency==='escalate' || /leadership/i.test(item.d.route||'') || item.priority==='high');
   if(!items.length) return 'No leadership escalations captured.';
-  return `INTERNAL LEADERSHIP ESCALATION PACK\nAudience: Internal Leadership\n\n${items.map(item=>`${item.clause.number||''} ${item.clause.heading||'Untitled'}\nIssue: ${item.issue}\nDecision: ${item.d.type||'not decided'}\nFallback: ${item.d.fallback||'Not captured'}\nOwner: ${item.d.owner||item.d.route||'Not assigned'}\n`).join('\n---\n')}`;
+  return `INTERNAL LEADERSHIP ESCALATION PACK\nAudience: Internal Leadership\n\n${items.map(item=>`${item.clause.number||''} ${item.clause.heading||'Untitled'}\nIssue: ${item.issue}\nDecision: ${decisionDisplayLabel(item.d)}\nFallback: ${item.d.fallback||'Not captured'}\nOwner: ${item.d.owner||item.d.route||'Not assigned'}\n`).join('\n---\n')}`;
 }
 function buildCallAgendaTxt(){
   const rank={high:3,medium:2,low:1};
   const items=buildPreparePackItems().sort((a,b)=>(rank[b.priority||'medium']||2)-(rank[a.priority||'medium']||2)).slice(0,10);
   if(!items.length) return 'No live negotiation agenda items.';
-  return `INTERNAL NEGOTIATION PREP\nAudience: Internal Legal\n\n${items.map((item,idx)=>`${idx+1}. ${item.clause.number||''} ${item.clause.heading||'Untitled'} — ${item.d.type||'not decided'}${item.d.fallback?` | Fallback: ${item.d.fallback}`:''}`).join('\n')}`;
+  return `INTERNAL NEGOTIATION PREP\nAudience: Internal Legal\n\n${items.map((item,idx)=>`${idx+1}. ${item.clause.number||''} ${item.clause.heading||'Untitled'} — ${decisionDisplayLabel(item.d)}${item.d.fallback?` | Fallback: ${item.d.fallback}`:''}`).join('\n')}`;
 }
 function renderStakeholderPackCards(){
   const businessCount=buildPreparePackItems().filter(item=>/Business/i.test(item.d.route||'')).length;
-  const leadershipCount=buildPreparePackItems().filter(item=>item.d.type==='escalate' || /leadership/i.test(item.d.route||'')).length;
+  const leadershipCount=buildPreparePackItems().filter(item=>item.d.dependency==='escalate' || /leadership/i.test(item.d.route||'')).length;
   const approvalCount=buildPreparePackItems().filter(item=>item.d.type && item.d.type!=='accept').length;
   return `<div class="prepare-grid two-up">
     <div class="tool-card compact"><h4>Business summary</h4><div class="mini">Internal commercial audience • ${businessCount} item${businessCount===1?'':'s'} routed or commercially material.</div><div class="card-actions"><button class="btn btn-xs" type="button" data-export-action="business">Preview</button><button class="btn btn-xs" type="button" data-copy-action="business">Copy</button></div></div>
@@ -7139,7 +7207,7 @@ function renderHandoffReadinessCard(){
 function renderPreparePackSection(mode='priority'){
   const groups=groupPreparePackItems(mode);
   if(!groups.length) return `<div class="tool-card compact"><h4>Negotiation pack</h4><div class="mini">No clauses are currently marked for pack inclusion.</div></div>`;
-  return `<div class="tool-card compact"><div class="panel-subhead">Negotiation pack</div><div class="dashboard-actions compact"><button type="button" class="sub-pill ${mode==='priority'?'active':''}" data-prepare-group="priority">By priority</button><button type="button" class="sub-pill ${mode==='theme'?'active':''}" data-prepare-group="theme">By theme</button></div>${groups.map(([group,items])=>`<details class="prepare-pack-group" open><summary>${escapeHtml(group.charAt(0).toUpperCase()+group.slice(1))} (${items.length})</summary><div class="summary-list">${items.map(item=>`<div class="summary-item"><div><strong>${escapeHtml(item.clause.number||'')}</strong> ${escapeHtml(item.clause.heading||'Untitled')}<div class="summary-meta">${escapeHtml(item.issue)} • ${escapeHtml(item.d.type||'not decided')} • ${escapeHtml(item.d.route||'Legal Only')}</div>${item.d.fallback?`<div class="mini"><strong>Fallback:</strong> ${escapeHtml(truncateWords(item.d.fallback,18))}</div>`:''}</div><div class="card-actions"><button class="btn btn-xs jump-clause" type="button" data-clause-id="${escapeHtml(item.clause.id)}">Open</button><button class="btn btn-xs" type="button" data-toggle-pack="${escapeHtml(item.clause.id)}">${item.d.includeInPack?'Included':'Include'}</button></div></div>`).join('')}</div></details>`).join('')}<div class="card-actions"><button class="btn btn-primary btn-sm" type="button" data-export-action="pack">Preview pack</button><button class="btn btn-sm" type="button" data-copy-action="pack">Copy pack</button></div></div>`;
+  return `<div class="tool-card compact"><div class="panel-subhead">Negotiation pack</div><div class="dashboard-actions compact"><button type="button" class="sub-pill ${mode==='priority'?'active':''}" data-prepare-group="priority">By priority</button><button type="button" class="sub-pill ${mode==='theme'?'active':''}" data-prepare-group="theme">By theme</button></div>${groups.map(([group,items])=>`<details class="prepare-pack-group" open><summary>${escapeHtml(group.charAt(0).toUpperCase()+group.slice(1))} (${items.length})</summary><div class="summary-list">${items.map(item=>`<div class="summary-item"><div><strong>${escapeHtml(item.clause.number||'')}</strong> ${escapeHtml(item.clause.heading||'Untitled')}<div class="summary-meta">${escapeHtml(item.issue)} • ${escapeHtml(decisionDisplayLabel(item.d))} • ${escapeHtml(item.d.route||'Legal Only')}</div>${item.d.fallback?`<div class="mini"><strong>Fallback:</strong> ${escapeHtml(truncateWords(item.d.fallback,18))}</div>`:''}</div><div class="card-actions"><button class="btn btn-xs jump-clause" type="button" data-clause-id="${escapeHtml(item.clause.id)}">Open</button><button class="btn btn-xs" type="button" data-toggle-pack="${escapeHtml(item.clause.id)}">${item.d.includeInPack?'Included':'Include'}</button></div></div>`).join('')}</div></details>`).join('')}<div class="card-actions"><button class="btn btn-primary btn-sm" type="button" data-export-action="pack">Preview pack</button><button class="btn btn-sm" type="button" data-copy-action="pack">Copy pack</button></div></div>`;
 }
 function renderPrepareOpenLoopsDashboard(){
   const loops=state.openLoops||[];
@@ -7422,7 +7490,7 @@ function getFilteredClauses(overrideFilters) {
     if (state.queuePreset === 'needs-decision') return base.filter(c => c.id === OVERVIEW_ID || (clauseRequiresDecision(c) && !getClauseDecision(c.id).type));
     if (state.queuePreset === 'high-risk') return base.filter(c => c.id === OVERVIEW_ID || (state.clauseRiskScores?.[c.id] || '') === 'High');
     if (state.queuePreset === 'needs-fallback') return base.filter(c => c.id === OVERVIEW_ID || (['seek-amendment','reject'].includes(getClauseDecision(c.id).type) && !String(getClauseDecision(c.id).fallback || '').trim()));
-    if (state.queuePreset === 'awaiting-input') return base.filter(c => c.id === OVERVIEW_ID || getClauseDecision(c.id).type === 'need-input');
+    if (state.queuePreset === 'awaiting-input') return base.filter(c => c.id === OVERVIEW_ID || getClauseDecision(c.id).dependency === 'need-input');
     if (state.queuePreset === 'decided') return base.filter(c => c.id === OVERVIEW_ID || !!getClauseDecision(c.id).type);
   }
   return base;
