@@ -73,6 +73,17 @@ function isReviewableClause(clause) {
 function getReviewableClauses() {
   return (state.clauses || []).filter(isReviewableClause);
 }
+function clauseRequiresDecision(clause) {
+  const override=state?.reviewabilityOverrides?.[clause?.id];
+  if(override==='include') return true;
+  if(override==='exclude') return false;
+  return typeof WORKFLOW_CORE.clauseRequiresDecision === 'function'
+    ? WORKFLOW_CORE.clauseRequiresDecision(clause)
+    : isReviewableClause(clause);
+}
+function getDecisionRequiredClauses() {
+  return (state.clauses || []).filter(clauseRequiresDecision);
+}
 
 const SAMPLE_TEXT_MSA = `MASTER SERVICES AGREEMENT
 
@@ -1934,8 +1945,13 @@ function deriveClauseReviewStatus(cid){
   return 'Not reviewed';
 }
 function getClauseCompletionState(cid){
-  const decision=getClauseDecision(cid);const decisionComplete=!!decision.type&&getDecisionCompletionState(cid).complete;
-  const sourceVerified=state.verificationByKey?.[`clause-source-${cid}`]==='confirmed';
+  const decision=getClauseDecision(cid);
+  // A structural heading (see clauseRequiresDecision) has nothing for a lawyer to decide or verify
+  // against source, so it is treated as complete by default rather than permanently sitting in
+  // "unreviewed" counts because it was never offered a decision to make in the first place.
+  const clauseNeedsDecision=clauseRequiresDecision((state.clauses||[]).find(c=>c.id===cid));
+  const decisionComplete=!clauseNeedsDecision||(!!decision.type&&getDecisionCompletionState(cid).complete);
+  const sourceVerified=!clauseNeedsDecision||state.verificationByKey?.[`clause-source-${cid}`]==='confirmed';
   const reviewComplete=decisionComplete&&sourceVerified;
   const approvalStatus=String(state.clauseApprovalStatus?.[cid]||decision.approvalStatus||'');
   const approvalResolved=decision.type!=='escalate'||approvalStatus==='Approved';
@@ -3699,17 +3715,21 @@ for(const p of patterns){const m=t.match(p);if(m){const r1=String(m[1]||'').trim
 }
 function splitNumberedClauseContent(parsed,line){
   const content=String(parsed?.heading||'').trim();
-  if(!content)return{heading:'Clause',body:''};
+  if(!content)return{heading:'Clause',body:'',isDuplicateOfHeading:false};
   const match=content.match(/^(.{2,100}?)[.:—–-]\s+(.+)$/);
   if(match){
     const candidate=match[1].trim();
     const words=candidate.split(/\s+/).filter(Boolean);
-    if(words.length<=12&&!/\b(?:shall|must|will|means|includes?|agrees?\s+to|undertakes?\s+to)\b/i.test(candidate))return{heading:candidate,body:match[2].trim()};
+    if(words.length<=12&&!/\b(?:shall|must|will|means|includes?|agrees?\s+to|undertakes?\s+to)\b/i.test(candidate))return{heading:candidate,body:match[2].trim(),isDuplicateOfHeading:false};
   }
   const heading=conciseClauseHeading(content,parsed?.number||'');
   const strippedBody=normalizeDocxLine(line).replace(/^\s*(?:Schedule\s+[A-Z0-9]+|Annex(?:ure)?\s+[A-Z0-9]+|Exhibit\s+[A-Z0-9]+|Appendix\s+[A-Z0-9]+|(?:Article|Section|Clause)\s+[A-Z0-9.-]+|\d+(?:\.\d+)*(?:[a-z])?(?:\([a-z0-9ivx]+\))*|[A-Z]|[ivxlcdm]{1,8})[.):—–-]?\s*/i,'').trim();
   const isDuplicateOfHeading=strippedBody.replace(/[.;:]$/,'').trim().toLowerCase()===heading.trim().toLowerCase();
-  return{heading,body:isDuplicateOfHeading?'':strippedBody};
+  // Never drop the source text: a short clause whose full content collapses onto its own auto-heading
+  // still needs that text in `body` for every downstream detector (defined terms, obligations,
+  // cross-references) to see it. `isDuplicateOfHeading` tells the renderer not to print the heading and
+  // body twice; it must never mean "discard the body".
+  return{heading,body:strippedBody,isDuplicateOfHeading};
 }
 function isAdministrativeLine(t){return /(signature of authorized representative|business office only|funding source|district contract|attn:|email:|phone number|print\s+title|contracts?@|accounts?-payable@)/i.test(t||'');}
 function isLikelyClauseBoundary(number,heading){
@@ -3750,12 +3770,12 @@ if(rec.headingLevel&&operativeStyled&&!startsStyledClause&&!hasWordNumbering){
   cur.bodyParts.push(line);continue;
 }
 const numberedParts=hasWordNumbering?splitNumberedClauseContent(parsed,line):null;
-const sh=hasWordNumbering?{number:parsed.number,heading:numberedParts.heading,bodySeed:numberedParts.body,headingDerivedFromBody:!!numberedParts.body,numberingSource:rec.numberingSource,numberingLevel:rec.numberingLevel,sourceOrder:rec.sourceOrder,sourceBlockId:rec.sourceBlockId}:(rec.headingLevel&&startsStyledClause?{number:parsed?.number||'',heading:operativeStyled?conciseClauseHeading(parsed?.heading||line,parsed?.number||''):(parsed?.heading||line).trim(),bodySeed:operativeStyled?line:'',headingDerivedFromBody:operativeStyled,numberingSource:rec.numberingSource,numberingLevel:rec.numberingLevel,sourceOrder:rec.sourceOrder,sourceBlockId:rec.sourceBlockId}:null);
+const sh=hasWordNumbering?{number:parsed.number,heading:numberedParts.heading,bodySeed:numberedParts.body,headingDerivedFromBody:!!numberedParts.isDuplicateOfHeading,numberingSource:rec.numberingSource,numberingLevel:rec.numberingLevel,sourceOrder:rec.sourceOrder,sourceBlockId:rec.sourceBlockId}:(rec.headingLevel&&startsStyledClause?{number:parsed?.number||'',heading:operativeStyled?conciseClauseHeading(parsed?.heading||line,parsed?.number||''):(parsed?.heading||line).trim(),bodySeed:operativeStyled?line:'',headingDerivedFromBody:operativeStyled,numberingSource:rec.numberingSource,numberingLevel:rec.numberingLevel,sourceOrder:rec.sourceOrder,sourceBlockId:rec.sourceBlockId}:null);
 let plainNumberedBoundary=null;
 if(parsed&&/^\d+(?:\.\d+)*(?:[a-z])?(?:\([a-z0-9ivx]+\))*$/i.test(parsed.number||'')&&!isAdministrativeLine(parsed.heading)){
   const headingOnly=isLikelyClauseBoundary(parsed.number,parsed.heading);
   const parts=splitNumberedClauseContent(parsed,line);
-  plainNumberedBoundary=headingOnly?{...parsed,bodySeed:'',headingDerivedFromBody:false}:{number:parsed.number,heading:parts.heading,bodySeed:parts.body,headingDerivedFromBody:!!parts.body};
+  plainNumberedBoundary=headingOnly?{...parsed,bodySeed:'',headingDerivedFromBody:false}:{number:parsed.number,heading:parts.heading,bodySeed:parts.body,headingDerivedFromBody:!!parts.isDuplicateOfHeading};
 }
 const boundary=sh||plainNumberedBoundary||(parsed&&isLikelyClauseBoundary(parsed.number,parsed.heading)?parsed:null);
 if(boundary){seen=true;if(cur)cls.push(finalizeClause(cur));cur={id:`clause-${cls.length+1}`,number:boundary.number,heading:boundary.heading,bodyParts:boundary.bodySeed?[boundary.bodySeed]:[],level:rec.headingLevel||inferLevel(boundary.number),numberingSource:boundary.numberingSource||rec.numberingSource||'',numberingLevel:Number(boundary.numberingLevel??rec.numberingLevel??0),headingDerivedFromBody:!!boundary.headingDerivedFromBody,sourceOrder:Number.isFinite(boundary.sourceOrder)?boundary.sourceOrder:rec.sourceOrder,sourceStartOrder:rec.sourceOrder,sourceEndOrder:rec.sourceOrder,sourceBlockIds:[boundary.sourceBlockId||rec.sourceBlockId]};continue;}
@@ -3895,7 +3915,12 @@ function buildReferenceIndex(clauses){
   numericTopLevels.forEach((items,number)=>{if(items.length!==1)return;['Article','Section','Clause'].forEach(kind=>index.set(normalizeReferenceLabel(`${kind} ${number}`),items[0]));});
   return index;
 }
-function findClauseByReference(ref,clauses){const list=clauses||state.clauses||[];const t=normalizeReferenceLabel(ref);const indexed=buildReferenceIndex(list).get(t);if(Array.isArray(indexed))return null;return indexed||list.find(c=>normalizeReferenceLabel(`${c.number||''} ${c.heading||''}`).includes(t));}
+function findClauseByReference(ref,clauses,excludeId){const list=clauses||state.clauses||[];const t=normalizeReferenceLabel(ref);const indexed=buildReferenceIndex(list).get(t);if(Array.isArray(indexed))return null;if(indexed)return indexed;
+  // Fallback: a reference token appearing inside a clause's own heading/number is only real evidence when
+  // that heading was authored, not when it is an auto-derived echo of the clause's own body text (see
+  // headingDerivedFromBody) — otherwise a clause referencing a section number that was never drafted can
+  // "resolve" to itself, because its own truncated heading happens to contain the reference token.
+  return list.find(c=>c.id!==excludeId&&!c.headingDerivedFromBody&&normalizeReferenceLabel(`${c.number||''} ${c.heading||''}`).includes(t));}
 
 
 function extractReferenceCandidates(text){
@@ -3915,8 +3940,8 @@ return out.sort((a,b)=>a.start-b.start||a.end-b.end);
 function normalizeReferenceToken(token){
 return normalizeReferenceLabel(String(token||'').replace(/\bSched\.?\b/ig,'Schedule').replace(/\bSch\.?\b/ig,'Schedule').trim());
 }
-function resolveReferenceTarget(token, clauses){
-return findClauseByReference(token, clauses||state.clauses||[]) || null;
+function resolveReferenceTarget(token, clauses, excludeId){
+return findClauseByReference(token, clauses||state.clauses||[], excludeId) || null;
 }
 
 function detectCrossReferenceBreaks(clauses){
@@ -3956,7 +3981,7 @@ function buildReferenceLedger(clauses){
       const norm=normalizeReferenceToken(reference);const indexed=referenceIndex.get(norm);const context=referenceContextSentence(body,reference);let target=null;let status='missing';let candidates=[];
       if(Array.isArray(indexed)){status='ambiguous';candidates=indexed.map(item=>item.id);}
       else if(indexed){status='valid';target=indexed;}
-      else {target=resolveReferenceTarget(reference,list);if(target)status='valid';}
+      else {target=resolveReferenceTarget(reference,list,clause.id);if(target)status='valid';}
       const sourceTopic=referenceSemanticTopic(context);
       if(status==='valid'&&target&&sourceTopic&&/\b(?:under|pursuant to|in accordance with|subject to|as set out in|specified in)\b/i.test(context)){
         const targetTopic=referenceSemanticTopic(`${target.heading||''} ${target.body||''}`);
@@ -4769,7 +4794,7 @@ function buildDefinedTermsGlossaryHtml(){const terms=Object.values(state.defined
 function exportDefinedTermsGlossary(){if(!Object.keys(state.definedTerms||{}).length){showToast('No defined terms are available to export.','warn');return;}downloadBlob(`${safeBaseName(state.documentMeta.fileName||'contract')}_defined_terms_glossary_${buildDateStamp()}.html`,new Blob([buildDefinedTermsGlossaryHtml()],{type:'text/html;charset=utf-8'}));}
 function renderResolveWorkspace(){
   if(!els.resolveWorkspace)return;recomputeOpenLoops();
-  const clauses=getReviewableClauses();const groups=[
+  const clauses=getDecisionRequiredClauses();const groups=[
     ['Decisions',clauses.filter(c=>!getClauseDecision(c.id).type),'Choose a legal disposition'],
     ['Business questions',clauses.filter(c=>getClauseDecision(c.id).type==='need-input'),'Obtain missing commercial or operational input'],
     ['Approvals',clauses.filter(c=>getClauseDecision(c.id).type==='escalate'&&String(state.clauseApprovalStatus?.[c.id]||'')!=='Approved'),'Secure required approval'],
@@ -5007,9 +5032,10 @@ function renderOverviewReviewQueue(){
 
 function renderGuidedOverview(){
   const reviewable=getReviewableClauses();
-  const decided=reviewable.filter(c=>!!getClauseDecision(c.id).type).length;
+  const decisionRequired=getDecisionRequiredClauses();
+  const decided=decisionRequired.filter(c=>!!getClauseDecision(c.id).type).length;
   const riskRank={High:3,Medium:2,Low:1};
-  const priorities=reviewable.filter(c=>!getClauseDecision(c.id).type).sort((a,b)=>(riskRank[state.clauseRiskScores?.[b.id]||'Low']-riskRank[state.clauseRiskScores?.[a.id]||'Low'])||(riskRank[state.reviewPriorityScores?.[b.id]||'Low']-riskRank[state.reviewPriorityScores?.[a.id]||'Low'])).slice(0,3);
+  const priorities=decisionRequired.filter(c=>!getClauseDecision(c.id).type).sort((a,b)=>(riskRank[state.clauseRiskScores?.[b.id]||'Low']-riskRank[state.clauseRiskScores?.[a.id]||'Low'])||(riskRank[state.reviewPriorityScores?.[b.id]||'Low']-riskRank[state.reviewPriorityScores?.[a.id]||'Low'])).slice(0,3);
   const terms=extractCommercialTermsSummary();
   const termRows=[['Parties',terms.parties],['Effective date',terms.effectiveDate],['Payment',terms.paymentTerms],['Liability cap',terms.liabilityCap],['Governing law',terms.governingLaw]];
   const unresolved=(state.placeholders||[]).filter(p=>!p.resolved).length;
@@ -5022,7 +5048,7 @@ function renderGuidedOverview(){
   const sourceConfirmed=!hasUnconfirmedDegradedSource();
   return `<div class="guided-overview">
     <section class="guided-hero"><div><div class="clause-kicker">Analyze</div><h1 class="clause-heading">Contract snapshot</h1><p class="mini">Confirm the facts and signals below, then work through the substantive-clause queue.</p></div><button id="startGuidedReviewBtn" class="btn btn-primary" type="button">${decided?'Continue review':'Start review'} →</button></section>
-    <div class="guided-summary-grid"><div class="guided-summary-card"><span>Reviewable clauses</span><strong>${reviewable.length}</strong></div><div class="guided-summary-card"><span>Decisions</span><strong>${decided}/${reviewable.length}</strong></div><div class="guided-summary-card"><span>Structural signals</span><strong>${unresolved+broken+missing}</strong></div></div>
+    <div class="guided-summary-grid"><div class="guided-summary-card"><span>Reviewable clauses</span><strong>${reviewable.length}</strong></div><div class="guided-summary-card"><span>Decisions</span><strong>${decided}/${decisionRequired.length}</strong></div><div class="guided-summary-card"><span>Structural signals</span><strong>${unresolved+broken+missing}</strong></div></div>
     ${renderOverviewReviewQueue()}
     <section class="tool-card guided-card source-integrity-card ${degradedSource?'source-integrity-degraded':''}"><div class="guided-card-head"><div><div class="mini-label">Source trust</div><h3>Was the document imported completely?</h3></div><span class="clause-pill ${degradedSource&&!sourceConfirmed?'status-pill-high':'status-pill-low'}">${degradedSource?(sourceConfirmed?'Source assurance recorded':'Output blocked pending verification'):'Source coverage strong'}</span></div><div class="guided-term-list"><div class="guided-term-row"><span>Source</span><strong>${escapeHtml(String(state.documentMeta?.sourceType||'text').toUpperCase())}</strong></div><div class="guided-term-row"><span>Clauses found</span><strong>${state.clauses.length}</strong></div>${state.documentMeta?.sourceType==='docx'?`<div class="guided-term-row"><span>Paragraphs / table rows</span><strong>${Number(extraction.paragraphs||0)} / ${Number(extraction.tableRows||0)}</strong></div><div class="guided-term-row"><span>Recovered Word numbering</span><strong>${Number(extraction.directNumbered||0)} direct · ${Number(extraction.styleNumbered||0)} style-inherited</strong></div><div class="guided-term-row"><span>Strong clause boundaries represented</span><strong>${Number(state.documentMeta?.sourceIntegrity?.representedStrongBoundaries||0)} / ${Number(state.documentMeta?.sourceIntegrity?.strongBoundaryCandidates||0)}</strong></div><div class="guided-term-row"><span>Nested numbered items retained in parent clauses</span><strong>${Number(state.documentMeta?.sourceIntegrity?.nestedNumberedItems||0)}</strong></div>`:''}<div class="guided-term-row"><span>Source fingerprint</span><strong class="source-fingerprint">${escapeHtml(state.documentMeta?.sourceFingerprint||'Unavailable in this browser')}</strong></div></div>${sourceWarnings.length?`<ul class="health-breakdown mini">${sourceWarnings.map(w=>`<li>${escapeHtml(w)}</li>`).join('')}</ul>`:'<p class="mini">Confirm the clause count and first/last source blocks before relying on analysis.</p>'}${degradedSource?`<div class="source-integrity-action"><p class="mini"><strong>Review the original Word file.</strong> Check every listed limitation. Either add any material omitted text to this review or record the exact no-material-omission assurance.</p><button type="button" class="btn ${sourceConfirmed?'btn-secondary':'btn-primary'}" data-source-integrity-confirm>${sourceConfirmed?'Source assurance recorded ✓':'Verify omitted source content'}</button></div>`:''}</section>
     ${renderPlaybookBrief()}
@@ -5953,10 +5979,10 @@ function validateSessionShape(session){
 
 
 
-function getDecisionCount(){ return getReviewableClauses().filter(c=>!!getClauseDecision(c.id).type).length; }
+function getDecisionCount(){ return getDecisionRequiredClauses().filter(c=>!!getClauseDecision(c.id).type).length; }
 function hasLoadedDocument(){ return getReviewableClauses().length > 0; }
 function getExportGuardState(){
-  const total=getReviewableClauses().length;
+  const total=getDecisionRequiredClauses().length;
   const decided=getDecisionCount();
   const ready = total>0 && decided>0;
   let message='';
@@ -6285,7 +6311,7 @@ if(preset==='client'){
   return wrapReportDocument('Client Review Report',css,sections);
 }
 const internalItems=positionedClauses.map(c=>({clause:c,item:getReportClauseProjection(c,'internal')}));
-sections+=`<h2>Positions</h2><div class="report-card"><strong>Overall inherent risk:</strong> ${escapeHtml(state.documentRisk||'Low')}<br><strong>Review priority:</strong> ${escapeHtml(state.documentReviewPriority||'Low')}<br><strong>Decision progress:</strong> ${getReviewableClauses().filter(c=>!!getClauseDecision(c.id).type).length}/${getReviewableClauses().length}</div>${internalItems.length?`<table class="report-table"><thead><tr><th>Clause</th><th>Heading</th><th>Position</th><th>Internal fallback / note</th></tr></thead><tbody>${internalItems.map(({item})=>`<tr><td>${escapeHtml(item.number)}</td><td>${escapeHtml(item.heading)}</td><td><span class="pill">${escapeHtml(item.position)}</span></td><td>${escapeHtml(item.fallback||item.internalNote||'—')}</td></tr>`).join('')}</tbody></table>`:'<p>No positions captured.</p>'}`;
+sections+=`<h2>Positions</h2><div class="report-card"><strong>Overall inherent risk:</strong> ${escapeHtml(state.documentRisk||'Low')}<br><strong>Review priority:</strong> ${escapeHtml(state.documentReviewPriority||'Low')}<br><strong>Decision progress:</strong> ${getDecisionRequiredClauses().filter(c=>!!getClauseDecision(c.id).type).length}/${getDecisionRequiredClauses().length}</div>${internalItems.length?`<table class="report-table"><thead><tr><th>Clause</th><th>Heading</th><th>Position</th><th>Internal fallback / note</th></tr></thead><tbody>${internalItems.map(({item})=>`<tr><td>${escapeHtml(item.number)}</td><td>${escapeHtml(item.heading)}</td><td><span class="pill">${escapeHtml(item.position)}</span></td><td>${escapeHtml(item.fallback||item.internalNote||'—')}</td></tr>`).join('')}</tbody></table>`:'<p>No positions captured.</p>'}`;
 sections+=`<h2>Document Hygiene</h2><div class="report-card"><strong>Broken xrefs:</strong> ${state.issues.crossReferenceBreaks.length}<br><strong>Missing expected clauses:</strong> ${state.issues.missingStandardClauses.length}<br><strong>Drafting consistency observations:</strong> ${state.issues.consistency.length}</div>`;
 if(state.notes.length)sections+=`<h2>Internal Notes</h2>${Object.entries(notesByClause).map(([cid,ns])=>`<h3>${escapeHtml(clauseMap[cid]?.number||cid)} - ${escapeHtml(clauseMap[cid]?.heading||'')}</h3>${ns.map(n=>`<div class="report-card"><strong>${escapeHtml(n.type)}</strong>${n.owner?` <span class="mini">(${escapeHtml(n.owner)})</span>`:''}<p>${escapeHtml(n.text)}</p>${n.proposedFallback?`<pre>${escapeHtml(n.proposedFallback)}</pre>`:''}</div>`).join('')}`).join('')}`;
 sections+=`<h2>Negotiation Context</h2>${flagged.length?flagged.map(c=>{const item=getReportClauseProjection(c,'internal');return `<div class="report-card"><strong>${escapeHtml(item.number)} - ${escapeHtml(item.heading)}</strong><div class="mini">Position: ${escapeHtml(item.position||'Not set')} | Review: ${escapeHtml(state.clauseReviewStatus[c.id]||'Not reviewed')} | Inherent risk: ${escapeHtml(item.inherentRisk)} | Priority: ${escapeHtml(item.reviewPriority)}</div>${item.counterpartyPosition?`<p><strong>Counterparty position:</strong> ${escapeHtml(item.counterpartyPosition)}</p>`:''}${item.nextStep?`<p><strong>Next step:</strong> ${escapeHtml(item.nextStep)}</p>`:''}</div>`;}).join(''):'<p>No negotiation context captured.</p>'}`;
@@ -6856,7 +6882,7 @@ function renderDecisionCardBase(clause){
 }
 function renderClientShareControl(cid){const share=state.clauseAudienceSharing?.[cid]||{};if(share.client!==true&&getActiveWorkflowStage()!=='close')return'';return `<div class="client-share-control"><div class="panel-subhead">External wording gate</div><label class="decision-checkbox"><input id="decisionShareClientCheckbox" type="checkbox" ${share.client===true?'checked':''}> <span>Prepare this clause for client / counterparty output</span></label>${share.client===true?`<label class="drafting-field"><span>Lawyer-authored external wording</span><textarea id="decisionExternalSummaryInput" placeholder="Write the exact wording that may be shared externally. Internal notes, risk narratives and fallbacks are never copied here automatically.">${escapeHtml(share.summary||'')}</textarea></label><label class="decision-checkbox"><input id="decisionExternalSummaryApproved" type="checkbox" ${share.summaryApproved===true&&String(share.summary||'').trim()?'checked':''}> <span>I have reviewed and approve this wording for external output</span></label>`:''}<div class="mini">A client-facing report includes this item only when both the wording and approval are present.</div></div>`;}
 function renderDecisionCard(clause){return `${renderDecisionCardBase(clause)}${renderClientShareControl(clause.id)}`;}
-function recomputeOpenLoops(){ const reviewable=getReviewableClauses(); const sig=JSON.stringify(reviewable.map(c=>{ const d=getClauseDecision(c.id); return [c.id,d.type||"",d.fallback||"",d.route||"",d.owner||"",d.question||"",d.blocksApproval!==false,state.clauseApprovalStatus?.[c.id]||d.approvalStatus||""]; })); state.memoCache=state.memoCache||{}; if(state.memoCache.openLoopsSig===sig && Array.isArray(state.memoCache.openLoopsValue)){ state.openLoops=state.memoCache.openLoopsValue.map(x=>({...x})); recomputeReadiness(); return; }
+function recomputeOpenLoops(){ const reviewable=getDecisionRequiredClauses(); const sig=JSON.stringify(reviewable.map(c=>{ const d=getClauseDecision(c.id); return [c.id,d.type||"",d.fallback||"",d.route||"",d.owner||"",d.question||"",d.blocksApproval!==false,state.clauseApprovalStatus?.[c.id]||d.approvalStatus||""]; })); state.memoCache=state.memoCache||{}; if(state.memoCache.openLoopsSig===sig && Array.isArray(state.memoCache.openLoopsValue)){ state.openLoops=state.memoCache.openLoopsValue.map(x=>({...x})); recomputeReadiness(); return; }
   const loops=[];
   reviewable.forEach(clause=>{
     const cid=clause.id;
@@ -6873,7 +6899,7 @@ function recomputeOpenLoops(){ const reviewable=getReviewableClauses(); const si
   recomputeReadiness();
 }
 function recomputeReadiness(){
-  const clauses=getReviewableClauses();
+  const clauses=getDecisionRequiredClauses();
   const decided=clauses.filter(c=>!!getClauseDecision(c.id).type).length;
   const approvalRequestBlockers=(state.openLoops||[]).filter(loop=>loop.blocksApprovalRequest===true);
   const finalSignoffBlockers=(state.openLoops||[]).filter(loop=>loop.blocksFinalSignoff===true);
@@ -6905,7 +6931,7 @@ function getQueueCounts(){
   if(memoCache.queueCounts.signature===signature && memoCache.queueCounts.value) return memoCache.queueCounts.value;
   const clauses=getReviewableClauses();
   const counts={
-    'needs-decision': clauses.filter(c=>!getClauseDecision(c.id).type).length,
+    'needs-decision': getDecisionRequiredClauses().filter(c=>!getClauseDecision(c.id).type).length,
     'high-risk': clauses.filter(c=>(state.clauseRiskScores?.[c.id]||'')==='High').length,
     'needs-fallback': clauses.filter(c=>{const d=getClauseDecision(c.id); return ['seek-amendment','reject'].includes(d.type) && !String(d.fallback||'').trim();}).length,
     'awaiting-input': clauses.filter(c=>getClauseDecision(c.id).type==='need-input').length,
@@ -7340,7 +7366,7 @@ function setMobileWorkflowStage(stage){
     renderClauseView(); renderActiveRightPanel();
   } else if(stage==='decide'){
     if(!isReviewableClause(getSelectedClause())){
-      const next=getReviewableClauses().find(c=>!getClauseDecision(c.id).type) || getReviewableClauses()[0];
+      const next=getDecisionRequiredClauses().find(c=>!getClauseDecision(c.id).type) || getReviewableClauses()[0];
       if(next) safeJumpToClause(next.id,{preserveHistory:true});
     }
   } else if(stage==='prepare'){
@@ -7379,7 +7405,7 @@ function getFilteredClauses(overrideFilters) {
   }
   const base = getBaseFilteredClauses(overrideFilters);
   if (!overrideFilters && state.queuePreset && ['needs-decision','high-risk','needs-fallback','awaiting-input','decided'].includes(state.queuePreset)) {
-    if (state.queuePreset === 'needs-decision') return base.filter(c => c.id === OVERVIEW_ID || !getClauseDecision(c.id).type);
+    if (state.queuePreset === 'needs-decision') return base.filter(c => c.id === OVERVIEW_ID || (clauseRequiresDecision(c) && !getClauseDecision(c.id).type));
     if (state.queuePreset === 'high-risk') return base.filter(c => c.id === OVERVIEW_ID || (state.clauseRiskScores?.[c.id] || '') === 'High');
     if (state.queuePreset === 'needs-fallback') return base.filter(c => c.id === OVERVIEW_ID || (['seek-amendment','reject'].includes(getClauseDecision(c.id).type) && !String(getClauseDecision(c.id).fallback || '').trim()));
     if (state.queuePreset === 'awaiting-input') return base.filter(c => c.id === OVERVIEW_ID || getClauseDecision(c.id).type === 'need-input');

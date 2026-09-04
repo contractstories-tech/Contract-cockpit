@@ -59,8 +59,22 @@
     };
   }
 
+  const SENTENCE_ABBREVIATION_RE = /\b(cl|sec|art|no|para|fig|vol|pp|dr|mr|mrs|ms|prof|inc|ltd|corp|co|plc|llc|llp|etc|approx|est|dept|govt|univ)\.(?=\s)/gi;
   function splitLegalSentences(value) {
-    return String(value || '').replace(/\r?\n+/g, ' ').split(/(?<=[.!?;])\s+|\s+(?=(?:provided that|except that|however|but)\b)/i).map(clean).filter(Boolean);
+    const text = String(value || '').replace(/\r?\n+/g, ' ');
+    if (!text.trim()) return [];
+    // Protect decimals (99.5%, cl. 3.2), citation abbreviations (cl., sec., art.) and "e.g./i.e." from being
+    // read as sentence-ending periods before splitting, then restore them inside each resulting sentence.
+    const DOT = String.fromCharCode(1);
+    const protectedText = text
+      .replace(/(\d)\.(\d)/g, `$1${DOT}$2`)
+      .replace(/\b(?:e\.g|i\.e)\.(?=[\s,])/gi, m => m.replace(/\./g, DOT))
+      .replace(SENTENCE_ABBREVIATION_RE, `$1${DOT}`);
+    return protectedText
+      .split(/(?<=[.!?;])\s+|\s+(?=(?:provided that|except that|however|but)\b)/i)
+      .map(s => s.split(DOT).join('.'))
+      .map(clean)
+      .filter(Boolean);
   }
 
   const PROPOSITION_CATEGORIES = [
@@ -98,7 +112,7 @@
           if (isPossessive || precededByPreposition) continue;
           const segment = sentence.slice(start, end);
           const modality = segment.match(modalityPattern)?.[1] || '';
-          if ((!modality&&!explicitOption) || !category.action.test(sentence)) continue;
+          if ((!modality&&!explicitOption) || !category.action.test(segment)) continue;
           const genericBoth = /^(?:Either Party|Each Party|Both Parties|The Parties)$/i.test(actorText);
           const actor = parties.find(p => [p.alias,p.name].some(v => String(v||'').toLowerCase() === actorText.toLowerCase()));
           const polarity = /\b(?:not|cannot|can not)\b/i.test(modality) ? 'prohibited' : 'affirmative';
@@ -715,6 +729,7 @@
     detectAsymmetries: detectAsymmetriesV2,
     detectSubjectiveStandards,
     detectLegalConcepts,
+    splitLegalSentences,
     isStrongNumberedClauseHeading,
     objectiveRiskFloor,
     resolveStyleNumbering,

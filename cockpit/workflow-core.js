@@ -11,22 +11,39 @@
   }
 
   function classifyReviewability(clause) {
-    if (!clause || !clause.id || clause.id === '__overview__') return { reviewable: false, reason: 'system', confidence: 'high' };
-    if (clause.reviewable === false) return { reviewable: false, reason: 'marked-excluded', confidence: 'high' };
+    if (!clause || !clause.id || clause.id === '__overview__') return { reviewable: false, requiresDecision: false, reason: 'system', confidence: 'high' };
+    if (clause.reviewable === false) return { reviewable: false, requiresDecision: false, reason: 'marked-excluded', confidence: 'high' };
     const heading = normalizedHeading(clause);
     const body = String(clause.body || '').replace(/\s+/g, ' ').trim();
-    if (!heading && !body) return { reviewable: false, reason: 'empty', confidence: 'high' };
-    if (ADMIN_FIELD_RE.test(heading) || PARTY_CONTACT_RE.test(heading)) return { reviewable: false, reason: 'administrative-field', confidence: 'high' };
-    if (SIGNATURE_RE.test(heading) || /^(?:signature\s+page|execution\s+page)$/i.test(heading)) return { reviewable: false, reason: 'signature-block', confidence: 'high' };
-    if (/^for\s+.{2,100}:?$/i.test(heading) && /\b(?:name|title|signature|date|authori[sz]ed signatory)\s*:/i.test(body)) return { reviewable: false, reason: 'party-signature-block', confidence: 'high' };
-    if (DOCUMENT_TITLE_RE.test(heading)) return { reviewable: false, reason: 'document-title', confidence: 'high' };
+    if (!heading && !body) return { reviewable: false, requiresDecision: false, reason: 'empty', confidence: 'high' };
+    if (ADMIN_FIELD_RE.test(heading) || PARTY_CONTACT_RE.test(heading)) return { reviewable: false, requiresDecision: false, reason: 'administrative-field', confidence: 'high' };
+    if (SIGNATURE_RE.test(heading) || /^(?:signature\s+page|execution\s+page)$/i.test(heading)) return { reviewable: false, requiresDecision: false, reason: 'signature-block', confidence: 'high' };
+    if (/^for\s+.{2,100}:?$/i.test(heading) && /\b(?:name|title|signature|date|authori[sz]ed signatory)\s*:/i.test(body)) return { reviewable: false, requiresDecision: false, reason: 'party-signature-block', confidence: 'high' };
+    if (DOCUMENT_TITLE_RE.test(heading)) return { reviewable: false, requiresDecision: false, reason: 'document-title', confidence: 'high' };
     const firstSourceBlock = Number(clause.sourceOrder || 0) <= 1;
     const titleLanguage = /\b(?:agreement|addendum|contract|terms\s+and\s+conditions|statement\s+of\s+work|schedule)\b/i.test(heading);
     const titleShape = heading.length <= 120 && (!body || body.length <= 80) && (/^[A-Z0-9 &\-/(),.]+$/.test(heading) || titleLanguage);
     const operativeLanguage = /\b(?:shall|must|will|agrees?\s+to|undertakes?\s+to|means|includes?|is\s+required\s+to)\b/i.test(`${heading} ${body}`);
-    if (firstSourceBlock && titleShape && !operativeLanguage) return { reviewable: false, reason: 'document-title-positional', confidence: 'medium' };
-    if (/^(?:page\s+\d+(?:\s+of\s+\d+)?|table\s+of\s+contents|contents)$/i.test(heading)) return { reviewable: false, reason: 'document-navigation', confidence: 'high' };
-    return { reviewable: true, reason: 'operative-or-uncertain', confidence: body || clause.number ? 'high' : 'medium' };
+    if (firstSourceBlock && titleShape && !operativeLanguage) return { reviewable: false, requiresDecision: false, reason: 'document-title-positional', confidence: 'medium' };
+    if (/^(?:page\s+\d+(?:\s+of\s+\d+)?|table\s+of\s+contents|contents)$/i.test(heading)) return { reviewable: false, requiresDecision: false, reason: 'document-navigation', confidence: 'high' };
+    // A structural section heading (e.g. "12. Limitation of Liability") whose own operative text lives
+    // entirely in child clauses (12.1, 12.2, ...) has either no body of its own, or a body that is just
+    // an echo of its heading label (ingestion sometimes copies the heading text into body rather than
+    // leaving it empty — the label is not itself extra operative content). Either way there is nothing
+    // here for a lawyer to legally dispose of. It stays navigable and reviewable (it is a real source
+    // anchor and can carry aggregated risk from its children) but does not require its own decision.
+    // A long heading gets truncated with a trailing "… (number)" while body keeps the full text, so an
+    // exact-equality check alone misses those; falling back to a prefix match catches "the heading is
+    // just the start of the body, truncated" without weakening the operative-language guard below.
+    const headingCore = heading.replace(/\s*\([^)]*\)\s*$/, '').replace(/[…]+$/, '').replace(/[.;:]+$/, '').trim().toLowerCase();
+    const bodyNormalized = body.replace(/[.;:]+$/, '').trim().toLowerCase();
+    const bodyIsBareHeadingEcho = !body || bodyNormalized === headingCore || (!!headingCore && bodyNormalized.startsWith(headingCore));
+    // Only a top-level section number (e.g. "12", "Article 1") is treated as structural, never a
+    // sub-numbered clause (e.g. "5.1", "12.1"): a dotted number is drafted as an individual operative
+    // provision far too often to exclude it on a keyword-incomplete "no operative language" heuristic.
+    const isTopLevelSectionNumber = !/\d\.\d/.test(String(clause.number || ''));
+    if (bodyIsBareHeadingEcho && !operativeLanguage && isTopLevelSectionNumber) return { reviewable: true, requiresDecision: false, reason: 'structural-heading', confidence: 'high' };
+    return { reviewable: true, requiresDecision: true, reason: 'operative-or-uncertain', confidence: body || clause.number ? 'high' : 'medium' };
   }
 
   function isReviewableClause(clause) {
@@ -35,6 +52,15 @@
 
   function getReviewableClauses(clauses) {
     return (Array.isArray(clauses) ? clauses : []).filter(isReviewableClause);
+  }
+
+  function clauseRequiresDecision(clause) {
+    const classification = classifyReviewability(clause);
+    return !!classification.reviewable && classification.requiresDecision !== false;
+  }
+
+  function getDecisionRequiredClauses(clauses) {
+    return (Array.isArray(clauses) ? clauses : []).filter(clauseRequiresDecision);
   }
 
   function decisionNeeds(decision) {
@@ -165,6 +191,8 @@
     classifyReviewability,
     isReviewableClause,
     getReviewableClauses,
+    clauseRequiresDecision,
+    getDecisionRequiredClauses,
     decisionNeeds,
     shouldIncludeInNegotiationPack,
     nextUndecidedClauseId,
