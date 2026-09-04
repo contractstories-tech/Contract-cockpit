@@ -92,6 +92,8 @@
           const start = match.index || 0;
           const end = index + 1 < actorMatches.length ? (actorMatches[index + 1].index || sentence.length) : sentence.length;
           const actorText = match[1];
+          const isPossessive = /^['’]s?\b/.test(sentence.slice(start+actorText.length, start+actorText.length+3));
+          if (isPossessive) continue;
           const segment = sentence.slice(start, end);
           const modality = segment.match(modalityPattern)?.[1] || '';
           const explicitOption=new RegExp(`\\b(?:at the option of|if so chosen by|as elected by)\\s+(?:the\\s+)?${esc(actorText)}\\b`,'i').test(sentence);
