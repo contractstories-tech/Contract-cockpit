@@ -1,7 +1,8 @@
 /* Contract Cockpit v7.6: pure analysis helpers shared by the app and regression tests. */
 (function attachContractCockpitAnalysis(root) {
   const clean = value => String(value || '')
-    .replace(/[\u2018\u2019\u201c\u201d]/g, "'")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
     .replace(/\s*\|\s*/g, ' · ')
     .replace(/\s+/g, ' ')
     .replace(/\s+([,.;:])/g, '$1')
@@ -179,7 +180,7 @@
   }
 
   function detectPrincipalParties(source) {
-    const text = String(source || '').replace(/[\u2018\u2019\u201c\u201d]/g, "'");
+    const text = String(source || '').replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"');
     const preamble = text.split(/\r?\n(?=(?:\d+(?:\.\d+)*|Article\s+[A-Z0-9]+)[.)]?\s+)/i)[0].slice(0, 6000);
     const lines = preamble.split(/\r?\n/).map(clean).filter(Boolean).slice(0, 45);
     const parties = [];
@@ -445,7 +446,7 @@
     const partyPattern = partyNames.map(v=>v.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');
     const actorPattern = new RegExp(`\\b(${partyPattern})\\b`, 'gi');
     const actionPattern = /\b(shall not|must not|may not|agrees not to|is strictly prohibited from|shall|must|will|is required to|agrees to|undertakes to|is obliged to|covenants to|commits to|shall ensure|shall cause|is responsible for|may|is entitled to|has the right to)\b/gi;
-    const countdownPattern = /\b(within\s+(?:(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|thirty|forty-five|sixty|ninety|\d+(?:\s+\d+)?)(?:\s*\((?:\d+|[a-z]+(?:-[a-z]+)*)\))?\s+)(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)(?:\s+(?:after|before|from|of|following)\s+[^.;,]+)?|(?:a\s+)?period\s+of\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:days?|weeks?|months?|years?)\s+(?:after|before|from|following)\s+[^.;,]+|not\s+less\s+than\s+(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)\s+prior|(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*days?['’]?\s+(?:written\s+|prior\s+|advance\s+)?notice|(?:more|less)\s+than\s+(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)|no later than\s+(?:\d+(?:\s*\((?:\d+|[a-z]+(?:-[a-z]+)*)\))?\s+)?(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)(?:\s+(?:after|before|from|of)\s+[^.;,]+)?|on or before\s+[^.;,]+|by\s+[A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})\b/i;
+    const countdownPattern = /\b(within\s+(?:(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|thirty|forty-five|sixty|ninety|\d+(?:\s+\d+)?)(?:\s*\((?:\d+|[a-z]+(?:-[a-z]+)*)\))?\s+)(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)(?:\s+(?:after|before|from|of|following)\s+[^.;,]{1,80}?(?=\s+(?:and|or|but|shall|must|will|may)\b|[.;,]|$))?|(?:a\s+)?period\s+of\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:days?|weeks?|months?|years?)\s+(?:after|before|from|following)\s+[^.;,]{1,80}?(?=\s+(?:and|or|but|shall|must|will|may)\b|[.;,]|$)|not\s+less\s+than\s+(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)\s+prior|(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*days?['’]?\s+(?:written\s+|prior\s+|advance\s+)?notice|(?:more|less)\s+than\s+(?:\w+(?:-\w+)?(?:\s*\(\d+\))?|\d+)\s+(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)|no later than\s+(?:\d+(?:\s*\((?:\d+|[a-z]+(?:-[a-z]+)*)\))?\s+)?(?:business|calendar)?\s*(?:days?|weeks?|months?|years?)(?:\s+(?:after|before|from|of)\s+[^.;,]{1,80}?(?=\s+(?:and|or|but|shall|must|will|may)\b|[.;,]|$))?|on or before\s+[^.;,]{1,80}?(?=\s+(?:and|or|but|shall|must|will|may)\b|[.;,]|$)|by\s+[A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})\b/i;
     const recurringPattern = /\b(?:daily|weekly|monthly|quarterly|annually|each\s+(?:day|week|month|quarter|year)|every\s+\d+\s+(?:days?|weeks?|months?))\b/i;
     const promptnessPattern = /\b(promptly|immediately|without undue delay|as soon as reasonably practicable)\b/i;
     const interpretivePattern = /\b(?:shall (?:solely )?be governed|shall prevail|shall control|shall be construed|shall be deemed|shall mean|shall include|in case of (?:conflict|discrepancy)|order of precedence|governing law|contractual relationship)\b/i;
@@ -645,10 +646,11 @@
     const placeholder = pattern => raw.match(pattern)?.[1] || '';
     const effectivePlaceholder = placeholder(/(\[[^\]]*(?:starting|effective)[^\]]*(?:date|contract)[^\]]*\])/i);
     const terminationPlaceholder = placeholder(/(\[[^\]]*(?:end|termination)[^\]]*(?:date|contract)[^\]]*\])/i);
-    const effectiveDate = effectivePlaceholder || raw.match(/(?:effective date|effective as of|dated as of|made on)\s*(?:is|of|:)?\s*([A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{4}|\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+\s+\d{4}|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\[[^\]]+\])/i)?.[1] || 'Not detected';
+    const effectiveDate = effectivePlaceholder || raw.match(/(?:effective date|effective as of|dated as of|made on)\s*(?:is|of|:)?\s*(\d{4}-\d{2}-\d{2}|[A-Z][a-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{4}|\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+\s+\d{4}|\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\[[^\]]+\])/i)?.[1] || 'Not detected';
     const payment = raw.match(/(?:invoice|invoices|amounts? due)[^.\n]{0,140}?\b(?:within|payable within|due within)\s+((?:[a-z-]+\s*\(\d+\)|\d+)\s+days?)\b/i)?.[1]
       || raw.match(/payment\s+term[\s\S]{0,180}?\b((?:[a-z-]+\s*\()?\d+\)?\s+days?)\b/i)?.[1]
-      || raw.match(/\b((?:[a-z]+\s*\()?\d+\)?\s+days?)\b[^.\n]{0,110}(?:invoice|payment|payable)/i)?.[1];
+      || raw.match(/\b((?:[a-z]+\s*\()?\d+\)?\s+days?)\b[^.\n]{0,110}(?:invoice|payment|payable)/i)?.[1]
+      || raw.match(/\b(net\s*\d{1,3}(?:\s+days?)?|\d{1,3}\s+days?\s+(?:net|from\s+invoice|end\s+of\s+month|eom))\b/i)?.[1];
     const confidentiality = /effective date.{0,100}five\s*\(5\)\s*years\s+thereafter/i.test(text)
       ? 'Five (5) years from the Effective Date.'
       : excerpt(raw.match(/[^.\n]{0,120}(?:confidential|non-disclosure)[^.\n]{0,220}\b\d+\s+years?[^.\n]{0,100}/i)?.[0] || '') || 'Not detected';

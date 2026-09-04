@@ -15,6 +15,34 @@ LEGACY_DB_KEYS.unshift('autosave-v6-76','autosave-v6-75','autosave-v6-74','autos
 LEGACY_LIBRARY_KEYS.unshift('clause-library-v6-76','clause-library-v6-75','clause-library-v6-74','clause-library-v6-73','clause-library-v6-72','clause-library-v6-71','clause-library-v6-70','clause-library-v6-69','clause-library-v6-68','clause-library-v6-67','clause-library-v6-66','clause-library-v6-65','clause-library-v6-64');
 const BUILD_VERSION = '7.6';
 const ANALYZER_VERSION = '7.6.0';
+
+/* -- Global safety net: an uncaught exception must never fail silently. Without this, a mid-pipeline
+   error can leave rendering or analysis partially complete while the UI gives no indication anything
+   went wrong — the lawyer could believe a document was fully checked when it was not. -- */
+let __lastUncaughtIssueAt = 0;
+function handleUncaughtIssue(kind, err){
+  try{
+    const now = Date.now();
+    const throttled = now - __lastUncaughtIssueAt < 4000;
+    __lastUncaughtIssueAt = now;
+    const message = (err && err.message) ? String(err.message) : String(err || 'Unknown error');
+    if (typeof state !== 'undefined' && state && state.diagnostics) {
+      state.diagnostics.lastError = `${kind}: ${message}`;
+      state.diagnostics.recentErrors = [{at: new Date().toISOString(), message: `${kind}: ${message}`}, ...(state.diagnostics.recentErrors || [])].slice(0, 20);
+    }
+    console.error(`[Contract Cockpit] ${kind}:`, err);
+    if (!throttled && typeof showToast === 'function') {
+      showToast('Something went wrong — the current view or analysis may be incomplete. Your work has been saved locally where possible.', 'error');
+    }
+    if (typeof scheduleAutosave === 'function' && typeof state !== 'undefined' && state && state.clauses && state.clauses.length) {
+      scheduleAutosave({reason:'critical'});
+    }
+  }catch(handlerErr){
+    console.error('[Contract Cockpit] error handler itself failed', handlerErr);
+  }
+}
+window.addEventListener('error', e => handleUncaughtIssue('Unexpected error', e && e.error ? e.error : (e && e.message) || e));
+window.addEventListener('unhandledrejection', e => handleUncaughtIssue('Unexpected error', e && e.reason));
 const ANALYSIS_CORE = globalThis.ContractCockpitAnalysis || {};
 const REVIEW_CORE = globalThis.ContractCockpitReview || {};
 const WORKFLOW_CORE = globalThis.ContractCockpitWorkflow || {};
@@ -3634,7 +3662,7 @@ async function analyzeText(text,fileName,sourceType,extras={}){
       const inferred=resolveContractType(inferContractType(text,state.clauses)||'Custom');
       if(inferred!=='Custom'){state.contractType=inferred;if(els.contractTypeSelect)els.contractTypeSelect.value=inferred;}
     }
-    state.obligations=extractObligations(state.clauses);state.deadlines=state.obligations.filter(item=>item.calendarable&&item.deadline).map((item,index)=>({id:`dl-${item.clauseId}-${index+1}`,clauseId:item.clauseId,clauseLabel:item.clauseLabel,expression:item.deadline,sentence:item.sourceSentence||item.action,unresolved:/\[[^\]]+\]|[●]/.test(item.sourceSentence||item.action),topic:item.topic||'General',kind:'deadline',confidence:item.confidence||'High',obligationId:item.id}));
+    state.obligations=extractObligations(state.clauses);state.deadlines=state.obligations.filter(item=>item.deadline).map((item,index)=>({id:`dl-${item.clauseId}-${index+1}`,clauseId:item.clauseId,clauseLabel:item.clauseLabel,expression:item.deadline,sentence:item.sourceSentence||item.action,unresolved:/\[[^\]]+\]|[●]/.test(item.sourceSentence||item.action),topic:item.topic||'General',kind:'deadline',confidence:item.confidence||'High',obligationId:item.id,calendarable:!!item.calendarable,deadlineKind:item.deadlineKind||''}));
     state.issues.subjectiveStandards=typeof ANALYSIS_CORE.detectSubjectiveStandards==='function'?ANALYSIS_CORE.detectSubjectiveStandards(state.clauses,state.rawText||''):[];
     state.issues.asymmetries=typeof ANALYSIS_CORE.detectAsymmetries==='function'?ANALYSIS_CORE.detectAsymmetries(state.clauses,state.rawText||'',state.legalPropositions):[];
     state.referenceLedger=buildReferenceLedger(state.clauses);
@@ -3817,7 +3845,14 @@ return re;
 
 function extractDefinedTerms(clauses,tableRows=[]){
 const terms={};const duplicateDefinitions=[];const possibleTerms=[];const tableDefinitions=[];
-const addTerm=(p)=>{const k=p.term.trim();if(!k)return;if((state.customStopLists?.definedTerms||DEFAULT_STOP_LISTS.definedTerms).includes(k))return;if(terms[k]){const ex=terms[k];if(p.carveOuts?.length)ex.carveOuts=[...new Set([...(ex.carveOuts||[]),...p.carveOuts])];const normalizeDefinition=v=>String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();const sameSource=String(ex.definedInClauseId||'')===String(p.definedInClauseId||'')&&normalizeDefinition(ex.definition)===normalizeDefinition(p.definition);if(!sameSource&&!(ex.scope==='local'&&p.scope==='global')&&!(ex.scope==='global'&&p.scope==='local')){const identical=normalizeDefinition(ex.definition)===normalizeDefinition(p.definition);duplicateDefinitions.push({term:k,firstClauseId:ex.definedInClauseId,secondClauseId:p.definedInClauseId,kind:identical?'identical':'conflicting',firstDefinition:ex.definition||'',secondDefinition:p.definition||''});}if(p.confidenceRank>ex.confidenceRank)terms[k]=p;return;}terms[k]=p;};
+const addTerm=(p)=>{const k=p.term.trim();if(!k)return;if((state.customStopLists?.definedTerms||DEFAULT_STOP_LISTS.definedTerms).includes(k))return;if(terms[k]){const ex=terms[k];if(p.carveOuts?.length)ex.carveOuts=[...new Set([...(ex.carveOuts||[]),...p.carveOuts])];const normalizeDefinition=v=>String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();const exDef=normalizeDefinition(ex.definition);const pDef=normalizeDefinition(p.definition);const identical=exDef===pDef;
+      // Different regex patterns can capture overlapping spans of the SAME definition (one anchored before a
+      // parenthetical numeral, one after) — e.g. "continues for an initial term of three (3) years" vs "years".
+      // Treat a same-clause candidate whose definition text is wholly contained in the other's as the same
+      // definition, not a genuine conflict; only flag when neither contains the other.
+      const overlapping=!identical&&exDef&&pDef&&(exDef.includes(pDef)||pDef.includes(exDef));
+      const sameSource=String(ex.definedInClauseId||'')===String(p.definedInClauseId||'')&&(identical||overlapping);
+      if(!sameSource&&!(ex.scope==='local'&&p.scope==='global')&&!(ex.scope==='global'&&p.scope==='local')){duplicateDefinitions.push({term:k,firstClauseId:ex.definedInClauseId,secondClauseId:p.definedInClauseId,kind:identical?'identical':'conflicting',firstDefinition:ex.definition||'',secondDefinition:p.definition||''});}if(p.confidenceRank>ex.confidenceRank)terms[k]=p;return;}terms[k]=p;};
 clauses.forEach(originalClause=>{
 if(isClauseAfterExecutionBoundary(originalClause))return;const clause={...originalClause,body:truncateAtExecutionBoundary(originalClause.body)};if(!clause.body.trim())return;
 const sentences=splitIntoSentences(clause.body);const hb=/definition|interpretation|schedule|annex|appendix/i.test(clause.heading)?1:0;
@@ -4105,7 +4140,7 @@ if(typeof ANALYSIS_CORE.extractObligationEvidence==='function')return ANALYSIS_C
 return [];
 }
 function extractDeadlines(clauses){
-const obligations=extractObligations(clauses);return obligations.filter(item=>item.calendarable&&item.deadline).map((item,index)=>({id:`dl-${item.clauseId}-${index+1}`,clauseId:item.clauseId,clauseLabel:item.clauseLabel,expression:item.deadline,sentence:item.sourceSentence||item.action,unresolved:/\[[^\]]+\]|[●]/.test(item.sourceSentence||item.action),topic:item.topic||'General',kind:'deadline',confidence:item.confidence||'High',obligationId:item.id}));
+const obligations=extractObligations(clauses);return obligations.filter(item=>item.deadline).map((item,index)=>({id:`dl-${item.clauseId}-${index+1}`,clauseId:item.clauseId,clauseLabel:item.clauseLabel,expression:item.deadline,sentence:item.sourceSentence||item.action,unresolved:/\[[^\]]+\]|[●]/.test(item.sourceSentence||item.action),topic:item.topic||'General',kind:'deadline',confidence:item.confidence||'High',obligationId:item.id,calendarable:!!item.calendarable,deadlineKind:item.deadlineKind||''}));
 }
 
 function buildExecutionCheck(){
@@ -4120,7 +4155,7 @@ else{
  if(/\b(?:Name|Title|Signature|Date)\s*:\s*(?:\[[^\]]+\]|_{3,}|●|\s*(?:\n|$))/i.test(executionText))add('signature','Incomplete signature details','At least one Name, Title, Signature or Date field appears blank.');
 }
 const undated=(state.placeholders||[]).filter(p=>!p.resolved&&!p.ignored&&/date|effective|start|commencement/i.test(p.text||''));
-if(!undated.length&&/\b(?:effective|commencement|start) date\b/i.test(state.rawText||'')&&!/\b(?:effective|commencement|start) date\b[^.\n]{0,80}(?:\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}|[A-Z][a-z]+\s+\d{1,2},?\s+\d{4})/i.test(state.rawText||''))add('date','Effective/start date requires verification','A date concept was found but no explicit calendar date was confidently extracted.','','verify');
+if(!undated.length&&/\b(?:effective|commencement|start) date\b/i.test(state.rawText||'')&&!/\b(?:effective|commencement|start) date\b[^.\n]{0,80}(?:\d{4}-\d{2}-\d{2}|\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}|[A-Z][a-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+,?\s+\d{4})/i.test(state.rawText||''))add('date','Effective/start date requires verification','A date concept was found but no explicit calendar date was confidently extracted.','','verify');
 return{items,status:items.some(i=>i.severity==='blocker')?'not-ready':items.length?'verify':'ready',generatedAt:new Date().toISOString()};
 }
 function renderExecutionCheckCard({compact=false}={}){const check=buildExecutionCheck();state.executionCheck=check;const open=check.items;return `<section class="tool-card guided-card execution-check-card ${check.status==='ready'?'low':check.status==='not-ready'?'high':'warn'}"><div class="guided-card-head"><div><div class="mini-label">Pre-signature execution check</div><h3>${check.status==='ready'?'No execution blockers detected':`${open.length} item${open.length===1?'':'s'} before signature`}</h3></div><span class="clause-pill">${escapeHtml(check.status==='ready'?'Ready to verify':check.status==='not-ready'?'Not ready':'Verify')}</span></div>${open.length?`<div class="summary-list">${open.slice(0,compact?4:12).map(i=>`<button type="button" class="summary-item ${i.clauseId?'jump-clause':''}" ${i.clauseId?`data-clause-id="${escapeHtml(i.clauseId)}"`:''}><span><strong>${escapeHtml(i.label)}</strong><small>${escapeHtml(i.detail)}</small></span><span class="summary-meta">${escapeHtml(i.severity==='blocker'?'Fix':'Verify')}</span></button>`).join('')}</div>`:'<p class="mini">No unresolved blanks, missing referenced attachments, incomplete signature fields or undated start provisions were detected. Verify the final Word document before signing.</p>'}<p class="mini">This is a deterministic preflight, not confirmation that the agreement is legally ready to execute.</p></section>`;}
@@ -5558,7 +5593,7 @@ return `<div class="panel-subhead">${unres} still present in source</div>`+items
 function buildTimelineContent(clause){
 const items=clause&&state.selectedClauseId!==OVERVIEW_ID?state.obligations.filter(i=>i.clauseId===clause.id):state.obligations;
 const grouped=groupBy(items,'party');const dates=state.selectedClauseId===OVERVIEW_ID?state.deadlines:state.deadlines.filter(i=>i.clauseId===clause?.id);
-return `<div class="mini">Obligations scan · confirm candidates before using them for execution tracking.</div><div class="dashboard-actions"><button id="copyObligationsBtn">Copy candidates</button><button id="exportObligationsCsvBtn">CSV</button><button id="exportObligationsICSBtn">Calendar (.ics)</button></div> <div class="panel-subhead">${items.length} candidate${items.length===1?'':'s'}</div> ${items.length?Object.entries(grouped).sort((a,b)=>a[0].localeCompare(b[0])).map(([party,g])=>`<div class="panel-subhead">${escapeHtml(party)} (${g.length})</div>${g.map(i=>`<div class="tool-card ${i.confidence==='High'?'high':i.confidence==='Low'?'low':'medium'}"><p class="mini">${escapeHtml(i.action)}</p><div class="mini">${escapeHtml(i.clauseLabel)}${i.deadline?` * ${escapeHtml(i.deadline)}`:''} * ${escapeHtml(i.confidence)} * ${state.obligationVerification?.[i.id]==='confirmed'?'Confirmed':'Unverified'}</div><button type="button" class="btn btn-xs" data-confirm-obligation="${escapeHtml(i.id)}">${state.obligationVerification?.[i.id]==='confirmed'?'Unconfirm':'Confirm'}</button></div>`).join('')}`).join(''):'<p class="mini">No obligation candidates extracted.</p>'} <div class="panel-subhead">Deadline signals (${dates.length})</div> ${dates.length?dates.slice(0,20).map(i=>`<div class="tool-card ${i.unresolved?'medium':'info'}"><h4>${escapeHtml(i.expression)}</h4><div class="mini">${escapeHtml(i.clauseLabel)}</div></div>`).join(''):'<p class="mini">No deadlines detected.</p>'}`;
+return `<div class="mini">Obligations scan · confirm candidates before using them for execution tracking.</div><div class="dashboard-actions"><button id="copyObligationsBtn">Copy candidates</button><button id="exportObligationsCsvBtn">CSV</button><button id="exportObligationsICSBtn">Calendar (.ics)</button></div> <div class="panel-subhead">${items.length} candidate${items.length===1?'':'s'}</div> ${items.length?Object.entries(grouped).sort((a,b)=>a[0].localeCompare(b[0])).map(([party,g])=>`<div class="panel-subhead">${escapeHtml(party)} (${g.length})</div>${g.map(i=>`<div class="tool-card ${i.confidence==='High'?'high':i.confidence==='Low'?'low':'medium'}"><p class="mini">${escapeHtml(i.action)}</p><div class="mini">${escapeHtml(i.clauseLabel)}${i.deadline?` * ${escapeHtml(i.deadline)}`:''} * ${escapeHtml(i.confidence)} * ${state.obligationVerification?.[i.id]==='confirmed'?'Confirmed':'Unverified'}</div><button type="button" class="btn btn-xs" data-confirm-obligation="${escapeHtml(i.id)}">${state.obligationVerification?.[i.id]==='confirmed'?'Unconfirm':'Confirm'}</button></div>`).join('')}`).join(''):'<p class="mini">No obligation candidates extracted.</p>'} <div class="panel-subhead">Deadline signals (${dates.length})</div> ${dates.length?dates.slice(0,20).map(i=>`<div class="tool-card ${i.unresolved?'medium':'info'}"><h4>${escapeHtml(i.expression)}</h4><div class="mini">${escapeHtml(i.clauseLabel)}${i.calendarable===false?' · needs a trigger date to calendar':''}</div></div>`).join(''):'<p class="mini">No deadlines detected.</p>'}`;
 }
 
 /* -- Notes Tab -- */
