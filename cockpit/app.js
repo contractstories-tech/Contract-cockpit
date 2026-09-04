@@ -701,6 +701,7 @@ navigatorBeforeFocus:'outline',
 startIntent:'checks',
 preferredStartCheck:'review-items',
 activeCheck:'',
+returnToCheckArmed:false,
 activeConcept:'',
 checkFilter:'all',
 checkCompletion:{},
@@ -1021,6 +1022,7 @@ function markHintSeen(key) {
 }
 function showHint(anchorEl, text, key) {
   if (!anchorEl || hasSeenHint(key)) return;
+  markHintSeen(key);
   const existing = document.getElementById('cockpit-hint-bubble');
   if (existing) existing.remove();
   const bubble = document.createElement('div');
@@ -1076,6 +1078,27 @@ function ensureModalSemantics(modal){
 function openModal(modal){if(!modal)return;ensureModalSemantics(modal);const active=document.activeElement;if(active&&active!==document.body)modalReturnFocus.set(modal,active);modal.dataset.openSequence=String(++modalOpenSequence);modal.classList.remove('hidden');modal.setAttribute('aria-hidden','false');document.body.classList.add('modal-open');trapFocusWithin(modal);}
 function closeModal(modal,{restoreFocus=true}={}){if(!modal)return;if(modal.id==='compareOverlay'){const trigger=modalReturnFocus.get(modal);modal.remove();if(!document.querySelector('.modal-overlay:not(.hidden)'))document.body.classList.remove('modal-open');if(restoreFocus&&trigger?.isConnected)requestAnimationFrame(()=>trigger.focus());return;}modal.classList.add('hidden');modal.setAttribute('aria-hidden','true');if(!document.querySelector('.modal-overlay:not(.hidden)'))document.body.classList.remove('modal-open');const trigger=modalReturnFocus.get(modal);modalReturnFocus.delete(modal);if(restoreFocus&&trigger?.isConnected)requestAnimationFrame(()=>trigger.focus());}
 function getTopmostOpenModal(){return [...document.querySelectorAll('.modal-overlay:not(.hidden)')].sort((a,b)=>Number(b.dataset.openSequence||0)-Number(a.dataset.openSequence||0))[0]||null;}
+function showConfirmDialog(message,options={}){
+  return new Promise(resolve=>{
+    const overlay=document.createElement('div');
+    overlay.className='modal-overlay';
+    overlay.innerHTML=`<div class="modal-card confirm-dialog-card"><div class="modal-head"><h2>${escapeHtml(options.title||'Confirm')}</h2></div><p class="confirm-dialog-message" style="white-space:pre-line">${escapeHtml(message)}</p><div class="card-actions"><button type="button" class="btn btn-ghost" data-confirm-cancel>${escapeHtml(options.cancelLabel||'Cancel')}</button><button type="button" class="btn btn-primary" data-confirm-ok>${escapeHtml(options.confirmLabel||'Confirm')}</button></div></div>`;
+    document.body.appendChild(overlay);
+    let settled=false;
+    const onKeydown=e=>{ if(e.key==='Escape'){ e.stopPropagation(); finish(false); } };
+    const finish=(result)=>{
+      if(settled)return; settled=true;
+      document.removeEventListener('keydown',onKeydown,true);
+      closeModal(overlay); overlay.remove();
+      resolve(result);
+    };
+    document.addEventListener('keydown',onKeydown,true);
+    overlay.addEventListener('click',e=>{ if(e.target===overlay) finish(false); });
+    overlay.querySelector('[data-confirm-cancel]').addEventListener('click',()=>finish(false));
+    overlay.querySelector('[data-confirm-ok]').addEventListener('click',()=>finish(true));
+    openModal(overlay);
+  });
+}
 function closeTopmostModal(){const modal=getTopmostOpenModal();if(!modal)return false;if(modal.id==='onboardingOverlay')dismissOnboarding();else closeModal(modal);return true;}
 function recomputeDerivedState(reason=''){ deriveIssuesFromState({persist:true}); if(reason) state.diagnostics.lastAction=`recompute:${reason}`; }
 function syncIssueToClause(issue){ if(!issue) return; const cid=issue.clauseId; if(issue.position!==undefined) setClausePosition(cid, issue.position||''); if(issue.status) { state.issueStatus[cid]=issue.status; setClauseDecision(cid,{status:issue.status}); } if(issue.routeTo!==undefined){ const canonical=canonicalRouteLabel(issue.routeTo); if(!canonical || canonical==='all' || canonical==='Legal Only'){ delete state.clauseRoutingTags[cid]; setClauseDecision(cid,{route:''}); } else { state.clauseRoutingTags[cid]=[canonical]; setClauseDecision(cid,{route:canonical}); } } refreshDerivedClauseState(cid); }
@@ -1086,6 +1109,7 @@ function safeJumpToClause(cid, opts={}){ const exists=(state.clauses||[]).some(c
 function jumpToClause(cid, opts = {}) {
   if (!cid) return;
   recordClauseOpenTime(cid);
+  state.returnToCheckArmed = !!opts.fromCheck;
   const prev = state.selectedClauseId;
   if (!opts.skipHistory) pushNavHistory(prev, cid);
   state.selectedClauseId = cid;
@@ -2571,7 +2595,7 @@ function applySessionReturn(saved){ if(!saved || !saved.selectedClauseId || !sta
 function restoreSessionReturnScroll(){ const st=Number(state.sessionReturn?.scrollTop||0); if(els.clauseView && st>0) requestAnimationFrame(()=>{els.clauseView.scrollTop=st;}); }
 function getSessionResumeLabel(){ const cid=state.sessionReturn?.selectedClauseId; const clause=(state.clauses||[]).find(c=>c.id===cid); if(!clause) return ''; return `${clause.number||''} ${clause.heading||''}`.trim(); }
 function deriveBreadcrumbTrail(clause){ if(!clause) return []; const list=state.clauses||[]; const idx=list.findIndex(c=>c.id===clause.id); if(idx<0) return [clause]; const level=Number(clause.level||1); const trail=[clause]; let expected=level-1; for(let i=idx-1;i>=0 && expected>=1;i--){ const c=list[i]; if(Number(c.level||1)===expected){ trail.unshift(c); expected--; } } return trail; }
-function renderBreadcrumbBar(clause){ if(!els.breadcrumbBar) return; if(!clause || clause.id===OVERVIEW_ID){ els.breadcrumbBar.innerHTML=''; els.breadcrumbBar.classList.add('hidden'); return; } const trail=deriveBreadcrumbTrail(clause); els.breadcrumbBar.classList.remove('hidden'); els.breadcrumbBar.innerHTML=trail.map((c,idx)=>`<button type="button" class="breadcrumb-chip" data-breadcrumb-id="${escapeHtml(c.id)}">${escapeHtml(c.number||c.heading||'Clause')}</button>${idx<trail.length-1?'<span class="breadcrumb-sep">›</span>':''}`).join(''); els.breadcrumbBar.querySelectorAll('[data-breadcrumb-id]').forEach(btn=>btn.addEventListener('click',()=>jumpToClause(btn.dataset.breadcrumbId))); }
+function renderBreadcrumbBar(clause){ if(!els.breadcrumbBar) return; if(!clause || clause.id===OVERVIEW_ID){ els.breadcrumbBar.innerHTML=''; els.breadcrumbBar.classList.add('hidden'); return; } const trail=deriveBreadcrumbTrail(clause); els.breadcrumbBar.classList.remove('hidden'); const returningCheck=state.returnToCheckArmed&&state.activeCheck&&getActiveWorkflowStage()!=='intake'?CHECK_DEFINITIONS.find(d=>d.id===state.activeCheck):null; const returnChip=returningCheck?`<button type="button" class="breadcrumb-chip breadcrumb-return" data-return-to-check title="Return to where you left off in this check">← Back to ${escapeHtml(returningCheck.title)}</button><span class="breadcrumb-sep">›</span>`:''; els.breadcrumbBar.innerHTML=returnChip+trail.map((c,idx)=>`<button type="button" class="breadcrumb-chip" data-breadcrumb-id="${escapeHtml(c.id)}">${escapeHtml(c.number||c.heading||'Clause')}</button>${idx<trail.length-1?'<span class="breadcrumb-sep">›</span>':''}`).join(''); els.breadcrumbBar.querySelectorAll('[data-breadcrumb-id]').forEach(btn=>btn.addEventListener('click',()=>jumpToClause(btn.dataset.breadcrumbId))); els.breadcrumbBar.querySelector('[data-return-to-check]')?.addEventListener('click',()=>setWorkflowStage('intake',{preserveTab:false})); }
 function hidePeekCard(){ state.peekCard={open:false,type:'',targetId:'',term:''}; els.peekCard?.classList.add('hidden'); }
 function positionPeekCard(anchor){ const card=els.peekCard; if(!anchor||!card) return; card.classList.remove('hidden'); card.style.left='0px'; card.style.top='0px'; const r=anchor.getBoundingClientRect(); const cr=card.getBoundingClientRect(); let left=r.left+window.scrollX; left=Math.max(window.scrollX+12, Math.min(left, window.scrollX+window.innerWidth-cr.width-12)); let top=r.bottom+window.scrollY+10; if(top+cr.height>window.scrollY+window.innerHeight-12) top=r.top+window.scrollY-cr.height-10; card.style.left=`${left}px`; card.style.top=`${top}px`; }
 function showPeekCardForClause(targetClauseId, anchorEl) {
@@ -2823,13 +2847,14 @@ document.getElementById('focusedStartCheck')?.addEventListener('change',e=>{stat
 els.readingModeBtn?.addEventListener('click',()=>toggleFocusMode());
 els.printViewBtn?.addEventListener('click',()=>window.print());
 els.checksWorkspace?.addEventListener('click',e=>{
-  const open=e.target.closest('[data-open-check]');if(open){state.activeCheck=open.dataset.openCheck||'';state.activeConcept='';state.checkFilter='all';renderChecksWorkspace();saveSessionReturn();return;}
-  const origin=e.target.closest('[data-open-check-origin]');if(origin){state.activeCheck=origin.dataset.openCheckOrigin||'';state.activeConcept='';state.checkFilter='all';renderChecksWorkspace();return;}
-  if(e.target.closest('[data-check-back]')){state.activeCheck='';state.activeConcept='';state.checkFilter='all';renderChecksWorkspace();return;}
+  const open=e.target.closest('[data-open-check]');if(open){state.activeCheck=open.dataset.openCheck||'';state.activeConcept='';state.activeTermFilter='';state.checkFilter='all';renderChecksWorkspace();saveSessionReturn();return;}
+  const origin=e.target.closest('[data-open-check-origin]');if(origin){state.activeCheck=origin.dataset.openCheckOrigin||'';state.activeConcept='';state.activeTermFilter='';state.checkFilter='all';renderChecksWorkspace();return;}
+  if(e.target.closest('[data-check-back]')){state.activeCheck='';state.activeConcept='';state.activeTermFilter='';state.checkFilter='all';renderChecksWorkspace();return;}
+  if(e.target.closest('[data-clear-term-filter]')){state.activeTermFilter='';renderChecksWorkspace();return;}
   const concept=e.target.closest('[data-concept-filter]');if(concept){state.activeConcept=state.activeConcept===concept.dataset.conceptFilter?'':concept.dataset.conceptFilter||'';renderChecksWorkspace();return;}
   const filter=e.target.closest('[data-check-filter]');if(filter){state.checkFilter=filter.dataset.checkFilter||'all';renderChecksWorkspace();return;}
   if(e.target.closest('[data-open-full-review]')){state.activeCheck='';setWorkflowStage('decide',{preserveTab:false});return;}
-  const source=e.target.closest('[data-check-source]');if(source){setWorkflowStage('decide',{preserveTab:true});jumpToClause(source.dataset.checkSource);return;}
+  const source=e.target.closest('[data-check-source]');if(source){setWorkflowStage('decide',{preserveTab:true});jumpToClause(source.dataset.checkSource,{fromCheck:true});return;}
   const finding=e.target.closest('[data-finding-state]');if(finding){state.findingReview||={};const key=finding.dataset.findingKey;const next=finding.dataset.findingState;state.findingReview[key]=state.findingReview[key]===next?'':next;renderChecksWorkspace();scheduleAutosave({reason:'critical'});return;}
   const complete=e.target.closest('[data-complete-check]');if(complete){state.checkCompletion||={};const id=complete.dataset.completeCheck;if(state.checkCompletion[id])delete state.checkCompletion[id];else state.checkCompletion[id]=new Date().toISOString();renderChecksWorkspace();scheduleAutosave({reason:'critical'});return;}
   const exp=e.target.closest('[data-check-export]');if(exp){exportCurrentCheck(CHECK_DEFINITIONS.find(i=>i.id===exp.dataset.checkExport));return;}
@@ -2837,7 +2862,7 @@ els.checksWorkspace?.addEventListener('click',e=>{
   const resolve=e.target.closest('[data-resolve-placeholder]');if(resolve){togglePlaceholderResolved(resolve.dataset.resolvePlaceholder);renderChecksWorkspace();return;}
   const ignore=e.target.closest('.ignore-undefined-btn');if(ignore){ignoreUndefinedTerm(ignore.dataset.term);renderChecksWorkspace();return;}
   const copy=e.target.closest('.copy-term-btn');if(copy){copyTextToClipboard(formatTermDetail(copy.dataset.term),'Term copied');return;}
-  const termUse=e.target.closest('[data-term-use-clause]');if(termUse){setWorkflowStage('decide',{preserveTab:true});jumpToClause(termUse.dataset.termUseClause);return;}
+  const termUse=e.target.closest('[data-term-use-clause]');if(termUse){setWorkflowStage('decide',{preserveTab:true});jumpToClause(termUse.dataset.termUseClause,{fromCheck:true});return;}
   const playbook=e.target.closest('[data-check-playbook-guidance]');if(playbook){const cid=playbook.dataset.checkPlaybookGuidance;setWorkflowStage('decide',{preserveTab:true});jumpToClause(cid);openPlaybookGuidance(cid,playbook.dataset.moduleId||'');return;}
 });
 els.contractTypeSelect?.addEventListener('change',e=>{state.contractType=resolveContractType(e.target.value||'Custom');if(state.clauses.length){state.contractType=resolveContractType(els.contractTypeSelect?.value||'Custom');
@@ -4638,12 +4663,15 @@ function renderCheckDetail(def){
   let findings='';
   let conceptNav='';
   if(def.id==='definitions'){
-    (state.issues.duplicateDefinitions||[]).forEach((i,n)=>{findings+=renderCheckFinding(def.id,`duplicate:${i.term}:${n}`,`Duplicate definition · ${i.term}`,i.kind==='conflicting'?'Definitions differ materially.':'The same label appears to be defined more than once.',i.firstClauseId,`${i.kind} duplicate`);});
-    (state.issues.definitionQuality||[]).forEach((i,n)=>{findings+=renderCheckFinding(def.id,`quality:${i.term}:${n}`,i.term,i.description,'','Definition quality');});
-    (state.issues.undefinedCapitalizedTerms||[]).forEach(i=>{findings+=renderCheckFinding(def.id,`undefined:${i.term}`,`Possible undefined term · ${i.term}`,`${i.count} uses across ${i.clauseCount||'multiple'} clauses.`,'','Possible gap',`<button type="button" class="link-btn ignore-undefined-btn" data-term="${escapeHtml(i.term)}">Ignore term</button>`);});
-    (state.issues.unusedDefinitions||[]).forEach(i=>{findings+=renderCheckFinding(def.id,`unused:${i.term}`,`Defined but not used · ${i.term}`,'No use outside its definition was located.',i.definedInClauseId,'Usage check');});
-    (state.definitionGraph?.issues||[]).forEach(i=>{findings+=renderCheckFinding(def.id,i.id,i.kind==='circular-definition'?`Possible circular definition · ${i.term}`:`Used before definition · ${i.term}`,i.detail,i.clauseId,i.kind==='circular-definition'?'Dependency check':'Definition order');});
-    if(state.checkFilter==='all')Object.values(state.definedTerms||{}).sort((a,b)=>a.term.localeCompare(b.term)).forEach(t=>{const node=(state.definitionGraph?.nodes||[]).find(n=>n.term===t.term);const dependencies=node?.dependencies||[];findings+=renderCheckFinding(def.id,`term:${t.term}`,t.term,(t.resolutionStatus==='resolved'?t.resolvedDefinition:'')||t.definition||t.contextSentence||'Definition captured.',t.definedInClauseId,`${t.definitionType} · ${t.usedInClauseIds?.length||0} uses${dependencies.length?` · depends on ${dependencies.join(', ')}`:''}`,`<button type="button" class="link-btn copy-term-btn" data-term="${escapeHtml(t.term)}">Copy</button>${(t.usedInClauseIds||[]).slice(0,3).map((id,index)=>`<button type="button" class="link-btn" data-term-use-clause="${escapeHtml(id)}">Use ${index+1}</button>`).join('')}`);});
+    const termFilter=state.activeTermFilter||'';
+    const termMatch=name=>!termFilter||String(name||'').toLowerCase()===termFilter.toLowerCase();
+    if(termFilter)conceptNav=`<div class="term-filter-banner">Showing the defined-term check for <strong>${escapeHtml(termFilter)}</strong><button type="button" class="link-btn" data-clear-term-filter>Clear ✕</button></div>`;
+    (state.issues.duplicateDefinitions||[]).filter(i=>termMatch(i.term)).forEach((i,n)=>{findings+=renderCheckFinding(def.id,`duplicate:${i.term}:${n}`,`Duplicate definition · ${i.term}`,i.kind==='conflicting'?'Definitions differ materially.':'The same label appears to be defined more than once.',i.firstClauseId,`${i.kind} duplicate`);});
+    (state.issues.definitionQuality||[]).filter(i=>termMatch(i.term)).forEach((i,n)=>{findings+=renderCheckFinding(def.id,`quality:${i.term}:${n}`,i.term,i.description,'','Definition quality');});
+    (state.issues.undefinedCapitalizedTerms||[]).filter(i=>termMatch(i.term)).forEach(i=>{findings+=renderCheckFinding(def.id,`undefined:${i.term}`,`Possible undefined term · ${i.term}`,`${i.count} uses across ${i.clauseCount||'multiple'} clauses.`,'','Possible gap',`<button type="button" class="link-btn ignore-undefined-btn" data-term="${escapeHtml(i.term)}">Ignore term</button>`);});
+    (state.issues.unusedDefinitions||[]).filter(i=>termMatch(i.term)).forEach(i=>{findings+=renderCheckFinding(def.id,`unused:${i.term}`,`Defined but not used · ${i.term}`,'No use outside its definition was located.',i.definedInClauseId,'Usage check');});
+    (state.definitionGraph?.issues||[]).filter(i=>termMatch(i.term)).forEach(i=>{findings+=renderCheckFinding(def.id,i.id,i.kind==='circular-definition'?`Possible circular definition · ${i.term}`:`Used before definition · ${i.term}`,i.detail,i.clauseId,i.kind==='circular-definition'?'Dependency check':'Definition order');});
+    if(state.checkFilter==='all'||termFilter)Object.values(state.definedTerms||{}).filter(t=>termMatch(t.term)).sort((a,b)=>a.term.localeCompare(b.term)).forEach(t=>{const node=(state.definitionGraph?.nodes||[]).find(n=>n.term===t.term);const dependencies=node?.dependencies||[];findings+=renderCheckFinding(def.id,`term:${t.term}`,t.term,(t.resolutionStatus==='resolved'?t.resolvedDefinition:'')||t.definition||t.contextSentence||'Definition captured.',t.definedInClauseId,`${t.definitionType} · ${t.usedInClauseIds?.length||0} uses${dependencies.length?` · depends on ${dependencies.join(', ')}`:''}`,`<button type="button" class="link-btn copy-term-btn" data-term="${escapeHtml(t.term)}">Copy</button>${(t.usedInClauseIds||[]).slice(0,3).map((id,index)=>`<button type="button" class="link-btn" data-term-use-clause="${escapeHtml(id)}">Use ${index+1}</button>`).join('')}`);});
   } else if(def.id==='references'){
     (state.issues.crossReferenceBreaks||[]).forEach((i,n)=>{findings+=renderCheckFinding(def.id,i.id||`${i.clauseId}:${i.reference}:${n}`,`${i.status==='ambiguous'?'Ambiguous reference':'Reference not found'} · ${i.reference}`,i.context||i.excerpt||'No matching source target was located.',i.clauseId,i.clauseLabel||'Cross-reference');});
     (state.issues.unresolvedCrossReferencedDefinitions||[]).forEach((i,n)=>{findings+=renderCheckFinding(def.id,`definition:${i.term}:${n}`,`${i.term} → ${i.reference}`,i.reason||'The referenced definition could not be resolved.',i.definedInClauseId,'Definition reference');});
@@ -4791,8 +4819,8 @@ function ensureTermTooltip(){let n=document.getElementById('termTooltip');if(!n)
 function positionFloatingTooltip(a,t){if(!a||!t)return;t.classList.remove('hidden');t.style.left='0px';t.style.top='0px';const r=a.getBoundingClientRect();const tr=t.getBoundingClientRect();let l=r.left+window.scrollX+(r.width/2)-(tr.width/2);l=Math.max(window.scrollX+12,Math.min(l,window.scrollX+window.innerWidth-tr.width-12));let top=r.top+window.scrollY-tr.height-10;if(top<window.scrollY+12)top=r.bottom+window.scrollY+10;t.style.left=`${l}px`;t.style.top=`${top}px`;}
 function showTermTooltip(a){const t=a?.dataset?.term;if(!t)return;const d=getTermPreviewData(t);if(!d)return;const tt=ensureTermTooltip();tt.innerHTML=`<div class="term-tooltip-title">${escapeHtml(d.term)}</div><div class="term-tooltip-def">${escapeHtml(d.definition)}</div><div class="term-tooltip-meta">${d.usageCount} use${d.usageCount===1?'':'s'}${d.earlyUse?' * Used before definition':''}</div>`;positionFloatingTooltip(a,tt);}
 function hideTermTooltip(){const t=document.getElementById('termTooltip');if(t)t.classList.add('hidden');}
-function openFocusedCheck(checkId,options={}){state.activeCheck=checkId||'review-items';state.activeConcept=options.concept||'';state.checkFilter=options.filter||'all';setWorkflowStage('intake',{preserveTab:false});renderChecksWorkspace();saveSessionReturn();}
-function bindTermChipInteractions(container = document) {const firstChip = container.querySelector('.term-chip'); if (!hasSeenHint(HINT_KEYS.TERM_CHIP) && firstChip) showHint(firstChip, 'Click any highlighted term to see its definition and find all uses across the contract.', HINT_KEYS.TERM_CHIP);container.querySelectorAll('.term-chip').forEach(n=>{if(n.dataset.boundTermChip==='true')return;n.dataset.boundTermChip='true';n.addEventListener('click',()=>{const term=n.dataset.term;if(term){state.activeTermFilter=term;showToast(`Opening the defined-term check for "${term}"`,'info');}openFocusedCheck('definitions');});n.addEventListener('mouseenter',()=>showTermTooltip(n));n.addEventListener('mouseleave',hideTermTooltip);n.addEventListener('focus',()=>showTermTooltip(n));n.addEventListener('blur',hideTermTooltip);});}
+function openFocusedCheck(checkId,options={}){state.activeCheck=checkId||'review-items';state.activeConcept=options.concept||'';state.checkFilter=options.filter||'all';setWorkflowStage('intake',{preserveTab:false});state.activeTermFilter=options.term||'';renderChecksWorkspace();saveSessionReturn();}
+function bindTermChipInteractions(container = document) {const firstChip = container.querySelector('.term-chip'); if (!hasSeenHint(HINT_KEYS.TERM_CHIP) && firstChip) showHint(firstChip, 'Click any highlighted term to see its definition and find all uses across the contract.', HINT_KEYS.TERM_CHIP);container.querySelectorAll('.term-chip').forEach(n=>{if(n.dataset.boundTermChip==='true')return;n.dataset.boundTermChip='true';n.addEventListener('click',()=>{const term=n.dataset.term;if(term)showToast(`Opening the defined-term check for "${term}"`,'info');openFocusedCheck('definitions',{term});});n.addEventListener('mouseenter',()=>showTermTooltip(n));n.addEventListener('mouseleave',hideTermTooltip);n.addEventListener('focus',()=>showTermTooltip(n));n.addEventListener('blur',hideTermTooltip);});}
 
 /* v6.0: Use pre-computed term hits for highlight rendering */
 function highlightDefinedTermsInSafeHtml(safeHtml,clauseId){
@@ -6170,7 +6198,7 @@ els.snapshotList.querySelectorAll('.restore-snapshot-btn').forEach(b=>b.addEvent
 els.snapshotList.querySelectorAll('.compare-snapshot-btn').forEach(b=>b.addEventListener('click',()=>showSnapshotDiff(b.dataset.id))); state.snapshotItems=items||[];
 els.snapshotList.querySelectorAll('.delete-snapshot-btn').forEach(b=>b.addEventListener('click',()=>deleteSnapshot(b.dataset.id)));
 }
-async function restoreSnapshot(id){try{const db=await openDb();const tx=db.transaction(DB_STORE,'readonly');const r=tx.objectStore(DB_STORE).get(id);const i=await promisifyRequest(r);if(!i?.payload)return;const label=i.label||i.fileName||'this snapshot';const details=`${i.clauseCount||0} clauses • ${i.noteCount||0} notes • ${formatShortDateTime(i.createdAt)||'date unavailable'}`;if(!window.confirm(`Restore “${label}”?\n\n${details}\n\nYour current review will be saved automatically as a recovery snapshot first.`))return;if(state.clauses.length)await saveSnapshotRecord(`Recovery before restoring ${label}`,getActiveWorkflowStage(),{recovery:true});hydrateState(i.payload);syncLandingIntakeFromMatter();state.diagnostics.lastRestoreSource='snapshot';state.sessionRestored=false;state.snapshotNotice=`Restored: ${label}`;showApp();renderAll();closeSnapshotsModal();scheduleAutosave({reason:'immediate'});showToast(`${state.snapshotNotice} • recovery snapshot saved`,'info');setTimeout(()=>{state.snapshotNotice='';renderHeader();},2400);}catch(e){console.warn('Restore failed',e);showToast('Restore failed. Your current review was not replaced.','error');}}
+async function restoreSnapshot(id){try{const db=await openDb();const tx=db.transaction(DB_STORE,'readonly');const r=tx.objectStore(DB_STORE).get(id);const i=await promisifyRequest(r);if(!i?.payload)return;const label=i.label||i.fileName||'this snapshot';const details=`${i.clauseCount||0} clauses • ${i.noteCount||0} notes • ${formatShortDateTime(i.createdAt)||'date unavailable'}`;const confirmed=await showConfirmDialog(`${details}\n\nYour current review will be saved automatically as a recovery snapshot first.`,{title:`Restore "${label}"?`,confirmLabel:'Restore'});if(!confirmed)return;if(state.clauses.length)await saveSnapshotRecord(`Recovery before restoring ${label}`,getActiveWorkflowStage(),{recovery:true});hydrateState(i.payload);syncLandingIntakeFromMatter();state.diagnostics.lastRestoreSource='snapshot';state.sessionRestored=false;state.snapshotNotice=`Restored: ${label}`;showApp();renderAll();closeSnapshotsModal();scheduleAutosave({reason:'immediate'});showToast(`${state.snapshotNotice} • recovery snapshot saved`,'info');setTimeout(()=>{state.snapshotNotice='';renderHeader();},2400);}catch(e){console.warn('Restore failed',e);showToast('Restore failed. Your current review was not replaced.','error');}}
 async function deleteSnapshot(id){const item=(state.snapshotItems||[]).find(entry=>entry.id===id);if(!window.confirm(`Delete recovery snapshot “${item?.label||item?.fileName||'Selected snapshot'}”? This cannot be undone.`))return;try{const db=await openDb();const tx=db.transaction(DB_STORE,'readwrite');tx.objectStore(DB_STORE).delete(id);await waitForTransaction(tx);const items=await listSnapshots();renderSnapshotsModal(items);showToast('Snapshot deleted','info');}catch(e){console.warn('Delete failed',e);}}
 
 /* -- Report HTML builder -- */
